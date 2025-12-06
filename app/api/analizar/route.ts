@@ -92,7 +92,7 @@ export async function POST(req: Request) {
     });
 
     // 4. GUARDAR EN BASE DE DATOS
-    const analysisData = JSON.parse(result.response.text());
+    const analysisData = JSON.parse(result.text());
 
     await addDoc(collection(db, "analysis_results"), {
       period: isMonthly ? "Monthly" : "Weekly",
