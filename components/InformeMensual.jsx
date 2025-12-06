@@ -43,9 +43,9 @@ const TarjetaAssetClass = ({ titulo, icono: Icon, datos, colores, visionGlobal }
     </div>
 
     <div className="p-6 flex flex-col md:flex-row gap-10 items-start">
-      {/* Gráfico Donut - CON ESTILO FIJO PARA EVITAR ERROR DE CONSOLA */}
+      {/* Gráfico Donut CORREGIDO */}
       <div className="w-full md:w-48 h-48 flex-shrink-0 relative mx-auto" style={{ minHeight: '192px', minWidth: '192px' }}>
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
           <PieChart>
             <Pie data={datos} innerRadius={55} outerRadius={75} paddingAngle={3} dataKey="peso" stroke="none">
               {datos.map((entry, index) => <Cell key={`cell-${index}`} fill={colores[index % colores.length]} />)}
@@ -95,19 +95,16 @@ const TarjetaAssetClass = ({ titulo, icono: Icon, datos, colores, visionGlobal }
 
 // --- COMPONENTE PRINCIPAL ---
 export default function InformeMensual({ datos }) {
-  // Estado para detectar si estamos en el cliente (navegador)
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Si no hay datos, mostramos carga (opcional, por seguridad)
   if (!datos) return null;
 
   const { meta, asignacion_tactica, macro_analysis } = datos;
 
-  // Si no estamos en el cliente, no renderizamos el contenido pesado para evitar errores de hidratación
   if (!isClient) return null; 
 
   return (
