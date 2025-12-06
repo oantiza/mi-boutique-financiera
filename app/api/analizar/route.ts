@@ -3,7 +3,7 @@ import { db } from "../../../lib/firebase";
 import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { NextResponse } from "next/server";
 
-// --- PROMPT 1: SEMANAL (El Periodista) ---
+// --- PROMPT 1: SEMANAL (Ajustado para llenar tus Tarjetas) ---
 const PROMPT_WEEKLY = `
 ROL: Analista de Mercado Táctico.
 OBJETIVO: Informe 'Weekly Brief' con noticias frescas.
@@ -11,17 +11,35 @@ HERRAMIENTA: Google Search (Grounding).
 
 INSTRUCCIONES:
 1. Busca noticias de los últimos 7 días sobre: Inflación, PIB, Bancos Centrales (Fed/BCE) y Geopolítica.
-2. Analiza el sentimiento de mercado a corto plazo (Bullish/Bearish).
-3. No inventes datos. Usa las fuentes encontradas.
+2. Genera contenido específico para las 4 áreas de análisis: Tasas, Renta Variable, Crédito y Flujos.
 
-SALIDA JSON:
+SALIDA JSON (Usa EXACTAMENTE estas claves para que el Frontend funcione):
 {
   "report_type": "WEEKLY",
   "title": "Weekly Market Brief",
-  "executive_summary": "Resumen de 200 palabras.",
-  "macro_analysis": "Análisis de noticias...",
-  "market_moves": "Resumen de movimientos S&P500 y Bonos.",
-  "tactical_opportunity": "Oportunidad de la semana."
+  "executive_summary": "Resumen ejecutivo de lo más importante de la semana (200 palabras).",
+  "thesis": { "content": "La tesis principal o conclusión de inversión para la semana." },
+  
+  "rates": { 
+      "title": "Tasas & Curvas", 
+      "content": "Análisis de bonos (US10Y, Bund) y política monetaria.", 
+      "key_metric": "US10Y: X.X%" 
+  },
+  "equity_valuation": { 
+      "title": "Valoración Equity", 
+      "content": "Análisis de bolsas (S&P500, Nasdaq). ¿Están caras o baratas?", 
+      "key_metric": "S&P P/E: XXx" 
+  },
+  "credit_risk": { 
+      "title": "Riesgo Crédito", 
+      "content": "Situación de spreads corporativos y High Yield.", 
+      "key_metric": "Spreads: Estables/Altos" 
+  },
+  "flows_positioning": { 
+      "title": "Flujos & Posicionamiento", 
+      "content": "Sentimiento de mercado (Bull/Bear) y flujos de fondos.", 
+      "key_metric": "Sentimiento: Fear/Greed" 
+  }
 }
 `;
 
@@ -40,19 +58,16 @@ SALIDA JSON:
 {
   "report_type": "MONTHLY",
   "title": "Monthly Asset Allocation Strategy",
-  "thesis_monthly": "Tesis central...",
-  "macro_cycle": { "stage": "Expansion/Recession", "desc": "..." },
+  "executive_summary": "Visión estratégica del mes.",
   "model_portfolio": [
-    { 
-      "asset_class": "Renta Variable", 
-      "region": "EE.UU.", 
-      "weight": 25, 
-      "benchmark": 20, 
-      "view": "Sobreponderar", 
-      "rationale": "Justificación..." 
-    },
-    // ... Genera entre 6 y 8 filas cubriendo RF, RV, Cash y Alternativos
-    { "asset_class": "Liquidez", "region": "Global", "weight": 5, "benchmark": 5, "view": "Neutral", "rationale": "..." }
+    { "asset_class": "Renta Variable", "region": "EE.UU.", "weight": 25, "benchmark": 20, "view": "Sobreponderar", "rationale": "..." },
+    { "asset_class": "Renta Variable", "region": "Europa", "weight": 15, "benchmark": 15, "view": "Neutral", "rationale": "..." },
+    { "asset_class": "Renta Variable", "region": "Emergentes", "weight": 5, "benchmark": 10, "view": "Infraponderar", "rationale": "..." },
+    { "asset_class": "Renta Fija", "region": "Gobierno Corto", "weight": 20, "benchmark": 15, "view": "Sobreponderar", "rationale": "..." },
+    { "asset_class": "Renta Fija", "region": "Gobierno Largo", "weight": 10, "benchmark": 15, "view": "Infraponderar", "rationale": "..." },
+    { "asset_class": "Crédito", "region": "IG / HY", "weight": 15, "benchmark": 15, "view": "Neutral", "rationale": "..." },
+    { "asset_class": "Alternativos", "region": "Oro", "weight": 5, "benchmark": 5, "view": "Neutral", "rationale": "..." },
+    { "asset_class": "Liquidez", "region": "USD", "weight": 5, "benchmark": 5, "view": "Neutral", "rationale": "..." }
   ]
 }
 `;
@@ -62,25 +77,19 @@ export async function GET(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "Falta API Key" }, { status: 500 });
 
-    // 1. DETECTAR EL MODO (Semanal o Mensual)
-    // Buscamos el parámetro en la URL (ej: /api/research?type=monthly)
     const { searchParams } = new URL(req.url);
     const typeParam = searchParams.get("type"); 
-    
-    // Por defecto es semanal, salvo que digamos lo contrario
     const isMonthly = typeParam === "monthly";
     const selectedPrompt = isMonthly ? PROMPT_MONTHLY : PROMPT_WEEKLY;
     const dbTag = isMonthly ? "MONTHLY_PORTFOLIO" : "WEEKLY_MACRO";
-    const modelId = "gemini-2.5-flash"; // Modelo rápido y potente
+    const modelId = "gemini-2.5-flash"; 
 
-    // 2. CONFIGURAR GEMINI CON BÚSQUEDA
     const ai = new GoogleGenAI({ apiKey });
+    // Configuración SIN responseMimeType para evitar error con Google Search
     const config = {
-      tools: [{ googleSearch: {} }], // Activamos Deep Research
-       };
+      tools: [{ googleSearch: {} }], 
+    };
 
-    // 3. EJECUTAR LA INVESTIGACIÓN
-    // Añadimos fecha actual para que el modelo sepa en qué día vive
     const currentDate = new Date().toLocaleDateString();
     const fullPrompt = `Fecha actual: ${currentDate}. \n${selectedPrompt}`;
 
@@ -90,21 +99,17 @@ export async function GET(req: Request) {
       config: config
     });
 
-    // 4. GUARDAR EN BASE DE DATOS
-    // Usamos el operador ?.() por si acaso y un valor por defecto
-// SIN PARÉNTESIS Y CON LIMPIEZA:
-let responseText = result.text || "{}"; 
-
-// ⚠️ IMPORTANTE: Limpiamos las etiquetas markdown que Gemini suele poner
-responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-
-const analysisData = JSON.parse(responseText);
+    // LIMPIEZA DE JSON (Crucial para Gemini + Search)
+    let responseText = result.text || "{}"; 
+    responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    const analysisData = JSON.parse(responseText);
 
     await addDoc(collection(db, "analysis_results"), {
       period: isMonthly ? "Monthly" : "Weekly",
-      ...analysisData, // Guardamos todo el JSON generado
+      ...analysisData,
       createdAt: Timestamp.now(),
-      type: dbTag, // Etiqueta clave para filtrar en el Frontend
+      type: dbTag,
       model_used: modelId
     });
 
@@ -115,4 +120,3 @@ const analysisData = JSON.parse(responseText);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-// Forzando actualizacion
