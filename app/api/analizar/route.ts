@@ -77,8 +77,7 @@ export async function GET(req: Request) {
     const ai = new GoogleGenAI({ apiKey });
     const config = {
       tools: [{ googleSearch: {} }], // Activamos Deep Research
-      responseMimeType: "application/json" // Forzamos JSON limpio
-    };
+       };
 
     // 3. EJECUTAR LA INVESTIGACIÓN
     // Añadimos fecha actual para que el modelo sepa en qué día vive
@@ -93,8 +92,12 @@ export async function GET(req: Request) {
 
     // 4. GUARDAR EN BASE DE DATOS
     // Usamos el operador ?.() por si acaso y un valor por defecto
-// SIN PARÉNTESIS:
-const responseText = result.text || "{}"; 
+// SIN PARÉNTESIS Y CON LIMPIEZA:
+let responseText = result.text || "{}"; 
+
+// ⚠️ IMPORTANTE: Limpiamos las etiquetas markdown que Gemini suele poner
+responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+
 const analysisData = JSON.parse(responseText);
 
     await addDoc(collection(db, "analysis_results"), {
