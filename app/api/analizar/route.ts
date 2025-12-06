@@ -93,7 +93,8 @@ export async function POST(req: Request) {
 
     // 4. GUARDAR EN BASE DE DATOS
     // Usamos el operador ?.() por si acaso y un valor por defecto
-const responseText = result.text ? result.text() : "{}"; 
+// SIN PARÉNTESIS:
+const responseText = result.text || "{}"; 
 const analysisData = JSON.parse(responseText);
 
     await addDoc(collection(db, "analysis_results"), {
