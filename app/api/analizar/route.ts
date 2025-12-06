@@ -57,7 +57,7 @@ SALIDA JSON:
 }
 `;
 
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "Falta API Key" }, { status: 500 });
