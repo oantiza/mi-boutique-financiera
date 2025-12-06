@@ -173,3 +173,4 @@ export default function InformeMensual({ datos }) {
     </div>
   );
 }
+// Forzando actualizacion de grafico
