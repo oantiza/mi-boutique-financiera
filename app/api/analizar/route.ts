@@ -1,59 +1,59 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { db } from "../../../lib/firebase";
-import { collection, addDoc, Timestamp, query, where, getDocs, deleteDoc } from "firebase/firestore";
+import { GoogleGenAI } from "@google/genai";
+import { db } from "../../../lib/firebase"; 
+import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { NextResponse } from "next/server";
 
-// --- TU PROMPT MAESTRO (CIO TIER-1) ---
-const PROMPT_CIO = `
-# ROL
-Actúa como el Estratega Jefe de Inversiones (CIO) Global de una gestora de activos Tier-1 (ej. BlackRock, JP Morgan AM). Tu objetivo es preparar el "Informe Trimestral de Estrategia y Asignación de Activos" para el comité de dirección.
+// --- PROMPT 1: SEMANAL (El Periodista) ---
+const PROMPT_WEEKLY = `
+ROL: Analista de Mercado Táctico.
+OBJETIVO: Informe 'Weekly Brief' con noticias frescas.
+HERRAMIENTA: Google Search (Grounding).
 
-# CONTEXTO
-Soy un gestor de carteras profesional. No necesito definiciones financieras ni explicaciones genéricas. Necesito datos actualizados, análisis de tendencias y, sobre todo, una postura clara (bullish/bearish/neutral) fundamentada en datos recientes.
+INSTRUCCIONES:
+1. Busca noticias de los últimos 7 días sobre: Inflación, PIB, Bancos Centrales (Fed/BCE) y Geopolítica.
+2. Analiza el sentimiento de mercado a corto plazo (Bullish/Bearish).
+3. No inventes datos. Usa las fuentes encontradas.
 
-# TAREA DE INVESTIGACIÓN (DEEP RESEARCH)
-Utiliza la información de los documentos adjuntos (PDFs) y TU CONOCIMIENTO ACTUALIZADO para investigar:
-1. **Macroeconomía:** Inflación (CPI/PCE), PIB y empleo (EE.UU., Eurozona, China). ¿Soft, Hard o No Landing?
-2. **Política Monetaria:** Posicionamiento FED, BCE, BOJ.
-3. **Geopolítica:** Impactos en suministro o energía.
-4. **Valoraciones:** Ratios actuales vs históricos.
-
-# FORMATO DE SALIDA (ESTRICTAMENTE JSON)
-No devuelvas texto plano. Tu respuesta debe ser un objeto JSON válido con esta estructura exacta para alimentar el Dashboard web:
-
+SALIDA JSON:
 {
-  "executive_summary": "Sintesis de 200 palabras (The Bottom Line).",
-  "macro_analysis": "Análisis detallado de Crecimiento, Inflación y Tipos (Punto 2 del formato).",
-  "cards": {
-      "global_stance": "BULLISH / NEUTRAL / BEARISH",
-      "main_risk": "El riesgo principal detectado",
-      "tactical_opportunity": "La mejor oportunidad táctica"
-  },
-  "allocation_matrix": [
-      // Genera una entrada por cada fila de tu tabla de asignación táctica:
-      { 
-        "asset": "Renta Variable", 
-        "region": "EE.UU. (Large Cap)", 
-        "view": "Sobreponderar (o Neutral/Infraponderar)", 
-        "conviction": 5, 
-        "rationale": "Justificación basada en datos..." 
-      },
-      { "asset": "Renta Variable", "region": "Europa", "view": "...", "conviction": 3, "rationale": "..." },
-      { "asset": "Renta Variable", "region": "Emergentes", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Renta Fija", "region": "Gobierno (Duración Corta)", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Renta Fija", "region": "Gobierno (Duración Larga)", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Crédito", "region": "Investment Grade", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Crédito", "region": "High Yield", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Alternativos", "region": "Commodities/Oro", "view": "...", "conviction": 0, "rationale": "..." },
-      { "asset": "Efectivo", "region": "Global", "view": "...", "conviction": 0, "rationale": "..." }
-  ],
-  "deep_research": {
-      "rates": "Análisis profundo de tasas...",
-      "valuation": "Análisis de valoraciones...",
-      "credit": "Análisis de crédito...",
-      "flows": "Análisis de flujos y geopolítica..."
-  },
-  "thesis": { "content": "La frase de tesis central de inversión." }
+  "report_type": "WEEKLY",
+  "title": "Weekly Market Brief",
+  "executive_summary": "Resumen de 200 palabras.",
+  "macro_analysis": "Análisis de noticias...",
+  "market_moves": "Resumen de movimientos S&P500 y Bonos.",
+  "tactical_opportunity": "Oportunidad de la semana."
+}
+`;
+
+// --- PROMPT 2: MENSUAL (El Gestor de Fondos) ---
+const PROMPT_MONTHLY = `
+ROL: Chief Investment Officer (CIO).
+OBJETIVO: Estrategia de Asignación de Activos (Asset Allocation).
+HERRAMIENTA: Google Search (Grounding) para datos de cierre de mes.
+
+INSTRUCCIONES:
+1. Investiga: Cierre mensual de S&P500, Yield 10Y, VIX y datos Macro clave.
+2. CONSTRUYE UNA CARTERA MODELO (Suma de pesos = 100%).
+3. Define la Tesis de Inversión para el mes entrante.
+
+SALIDA JSON:
+{
+  "report_type": "MONTHLY",
+  "title": "Monthly Asset Allocation Strategy",
+  "thesis_monthly": "Tesis central...",
+  "macro_cycle": { "stage": "Expansion/Recession", "desc": "..." },
+  "model_portfolio": [
+    { 
+      "asset_class": "Renta Variable", 
+      "region": "EE.UU.", 
+      "weight": 25, 
+      "benchmark": 20, 
+      "view": "Sobreponderar", 
+      "rationale": "Justificación..." 
+    },
+    // ... Genera entre 6 y 8 filas cubriendo RF, RV, Cash y Alternativos
+    { "asset_class": "Liquidez", "region": "Global", "weight": 5, "benchmark": 5, "view": "Neutral", "rationale": "..." }
+  ]
 }
 `;
 
@@ -62,61 +62,50 @@ export async function POST(req: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "Falta API Key" }, { status: 500 });
 
-    const body = await req.json();
-    const { asunto, fecha, textoCorreo, archivosAdjuntos } = body; 
-    const inputText = body.text || textoCorreo || ""; 
-
-    // Configuración de Gemini con Herramientas de Búsqueda (Google Search)
-    const genAI = new GoogleGenerativeAI(apiKey);
+    // 1. DETECTAR EL MODO (Semanal o Mensual)
+    // Buscamos el parámetro en la URL (ej: /api/research?type=monthly)
+    const { searchParams } = new URL(req.url);
+    const typeParam = searchParams.get("type"); 
     
-    // Usamos el modelo Pro porque entiende mejor instrucciones complejas de CIO
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      // Activa esto si quieres que busque en internet datos que no estén en el PDF
-      // tools: [{ googleSearchRetrieval: {} }] 
+    // Por defecto es semanal, salvo que digamos lo contrario
+    const isMonthly = typeParam === "monthly";
+    const selectedPrompt = isMonthly ? PROMPT_MONTHLY : PROMPT_WEEKLY;
+    const dbTag = isMonthly ? "MONTHLY_PORTFOLIO" : "WEEKLY_MACRO";
+    const modelId = "gemini-2.5-flash"; // Modelo rápido y potente
+
+    // 2. CONFIGURAR GEMINI CON BÚSQUEDA
+    const ai = new GoogleGenAI({ apiKey });
+    const config = {
+      tools: [{ googleSearch: {} }], // Activamos Deep Research
+      responseMimeType: "application/json" // Forzamos JSON limpio
+    };
+
+    // 3. EJECUTAR LA INVESTIGACIÓN
+    // Añadimos fecha actual para que el modelo sepa en qué día vive
+    const currentDate = new Date().toLocaleDateString();
+    const fullPrompt = `Fecha actual: ${currentDate}. \n${selectedPrompt}`;
+
+    const result = await ai.models.generateContent({
+      model: modelId,
+      contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+      config: config
     });
 
-    const parts = [];
-    
-    // 1. Contexto del Correo
-    parts.push({ 
-      text: `DOCUMENTOS DE ENTRADA:\nAsunto: ${asunto}\nFecha: ${fecha}\nCuerpo: ${inputText}` 
-    });
+    // 4. GUARDAR EN BASE DE DATOS
+    const analysisData = JSON.parse(result.response.text());
 
-    // 2. Adjuntos (PDFs)
-    if (archivosAdjuntos && Array.isArray(archivosAdjuntos)) {
-      archivosAdjuntos.forEach((adjunto: any) => {
-        parts.push({
-          inlineData: {
-            mimeType: "application/pdf",
-            data: adjunto.data 
-          }
-        });
-      });
-    }
-
-    // 3. El Prompt Maestro del CIO
-    parts.push({ text: PROMPT_CIO });
-
-    const result = await model.generateContent(parts);
-    let textResponse = result.response.text();
-    
-    // Limpieza de JSON
-    textResponse = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
-    const analysisData = JSON.parse(textResponse);
-
-    // Guardado en Firebase
     await addDoc(collection(db, "analysis_results"), {
-      originalSubject: asunto || "Manual CIO Request",
-      ...analysisData,
+      period: isMonthly ? "Monthly" : "Weekly",
+      ...analysisData, // Guardamos todo el JSON generado
       createdAt: Timestamp.now(),
-      type: "DEEP_RESEARCH_CIO"
+      type: dbTag, // Etiqueta clave para filtrar en el Frontend
+      model_used: modelId
     });
 
-    return NextResponse.json({ success: true, data: analysisData });
+    return NextResponse.json({ success: true, mode: dbTag, data: analysisData });
 
   } catch (error: any) {
-    console.error("Error procesando CIO:", error);
+    console.error("Error Deep Research:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
