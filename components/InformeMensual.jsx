@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Shield, Globe } from 'lucide-react';
 import DeepResearchSection from './DeepResearchSection';
 
@@ -43,16 +43,25 @@ const TarjetaAssetClass = ({ titulo, icono: Icon, datos, colores, visionGlobal }
     </div>
 
     <div className="p-6 flex flex-col md:flex-row gap-10 items-start">
-      {/* Gráfico Donut CORREGIDO */}
-      <div className="w-full md:w-48 h-48 flex-shrink-0 relative mx-auto" style={{ minHeight: '192px', minWidth: '192px' }}>
-        <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
-          <PieChart>
-            <Pie data={datos} innerRadius={55} outerRadius={75} paddingAngle={3} dataKey="peso" stroke="none">
-              {datos.map((entry, index) => <Cell key={`cell-${index}`} fill={colores[index % colores.length]} />)}
-            </Pie>
-            <Tooltip />
-          </PieChart>
-        </ResponsiveContainer>
+      {/* Gráfico Donut - VERSIÓN INFALIBLE (Tamaño Fijo) */}
+      <div className="flex justify-center items-center mx-auto mb-6 md:mb-0 relative w-[200px] h-[200px] flex-shrink-0">
+        <PieChart width={200} height={200}>
+          <Pie 
+            data={datos} 
+            innerRadius={60} 
+            outerRadius={80} 
+            paddingAngle={5} 
+            dataKey="peso" 
+            stroke="none"
+          >
+            {datos.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={colores[index % colores.length]} />
+            ))}
+          </Pie>
+          <Tooltip />
+        </PieChart>
+        
+        {/* Texto central */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span className="text-3xl font-bold text-slate-800">100<span className="text-sm">%</span></span>
           <span className="text-[10px] text-slate-400 uppercase">Cartera</span>
@@ -113,8 +122,8 @@ export default function InformeMensual({ datos }) {
         <div className="flex flex-col md:flex-row justify-between md:items-end mb-6 gap-4">
           <div>
             <h2 className="text-xs font-bold tracking-[0.2em] text-blue-600 uppercase mb-2">Informe Estratégico</h2>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">{meta.titulo}</h1>
-            <p className="text-slate-500 mt-1">{meta.fecha}</p>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">{meta?.titulo || datos.title}</h1>
+            <p className="text-slate-500 mt-1">{meta?.fecha || new Date().toLocaleDateString()}</p>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full shadow-sm">
             <span className="relative flex h-3 w-3">
@@ -127,27 +136,40 @@ export default function InformeMensual({ datos }) {
         
         <div className="bg-white p-6 rounded-xl shadow-sm border border-l-4 border-slate-200 border-l-blue-600">
           <h3 className="text-sm font-bold text-blue-900 mb-2 uppercase tracking-wide">Resumen Ejecutivo</h3>
-          <p className="text-slate-600 leading-relaxed text-lg font-light">{meta.resumen_ia}</p>
+          <p className="text-slate-600 leading-relaxed text-lg font-light">{meta?.resumen_ia || datos.executive_summary}</p>
         </div>
       </header>
 
-      <TarjetaAssetClass 
-        titulo="Renta Variable (Equity)" 
-        icono={Globe}
-        visionGlobal={asignacion_tactica.renta_variable.peso_global}
-        datos={asignacion_tactica.renta_variable.desglose}
-        colores={COLORES_RV}
-      />
+      {asignacion_tactica && (
+        <>
+          <TarjetaAssetClass 
+            titulo="Renta Variable (Equity)" 
+            icono={Globe}
+            visionGlobal={asignacion_tactica.renta_variable?.peso_global || "Neutral"}
+            datos={asignacion_tactica.renta_variable?.desglose || []}
+            colores={COLORES_RV}
+          />
 
-      <TarjetaAssetClass 
-        titulo="Renta Fija (Fixed Income)" 
-        icono={Shield}
-        visionGlobal={asignacion_tactica.renta_fija.peso_global}
-        datos={asignacion_tactica.renta_fija.desglose}
-        colores={COLORES_RF}
-      />
+          <TarjetaAssetClass 
+            titulo="Renta Fija (Fixed Income)" 
+            icono={Shield}
+            visionGlobal={asignacion_tactica.renta_fija?.peso_global || "Neutral"}
+            datos={asignacion_tactica.renta_fija?.desglose || []}
+            colores={COLORES_RF}
+          />
+        </>
+      )}
 
-      <DeepResearchSection data={macro_analysis} />
+      {/* Si no hay asignacion_tactica, usamos el fallback de portfolio */}
+      {!asignacion_tactica && datos.model_portfolio && (
+         <div className="mb-12">
+            <h3 className="font-bold text-slate-800 text-xl mb-4">Cartera Modelo</h3>
+            {/* Aquí podrías renderizar una tabla simplificada si no llega la estructura compleja */}
+            <p>Datos de cartera cargados correctamente.</p>
+         </div>
+      )}
+
+      {macro_analysis && <DeepResearchSection data={macro_analysis} />}
     </div>
   );
 }
