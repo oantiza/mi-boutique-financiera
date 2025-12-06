@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     
     // Usamos el modelo Pro porque entiende mejor instrucciones complejas de CIO
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-pro",
+      model: "gemini-2.5-flash",
       // Activa esto si quieres que busque en internet datos que no estén en el PDF
       // tools: [{ googleSearchRetrieval: {} }] 
     });
