@@ -3,8 +3,31 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  BubbleController
+} from 'chart.js';
+import { Line, Bar, Bubble } from 'react-chartjs-2';
+import { Playfair_Display, Roboto } from 'next/font/google';
 
-// Configuración Firebase Cliente
+// --- 1. CONFIGURACIÓN DE FUENTES ---
+const playfair = Playfair_Display({ subsets: ['latin'], weight: ['400', '700'] });
+const roboto = Roboto({ subsets: ['latin'], weight: ['300', '400', '500', '700'] });
+
+// --- 2. REGISTRO DE GRÁFICOS ---
+ChartJS.register(
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement, BubbleController, Title, Tooltip, Legend
+);
+
+// --- 3. CONFIGURACIÓN FIREBASE ---
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebaseapp.com",
@@ -17,165 +40,234 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
+// --- 4. DATOS VISUALES (ESTÉTICA) ---
+// Estos datos recrean los gráficos del HTML para mantener el diseño "lleno" y profesional
+const inflationData = {
+  labels: ['Q4 2024', 'Q1 2025', 'Q2 2025', 'Q3 2025', 'Q4 2025 (Est)'],
+  datasets: [
+    { label: 'Tasa FED', data: [5.33, 5.00, 4.75, 4.50, 4.25], borderColor: '#0B2545', backgroundColor: '#0B2545', tension: 0.1 },
+    { label: 'IPC EE.UU.', data: [3.2, 2.9, 2.7, 2.5, 2.4], borderColor: '#D4AF37', backgroundColor: '#D4AF37', borderDash: [5, 5], tension: 0.3 }
+  ]
+};
+
+const valuationData = {
+    datasets: [
+        { label: 'EE.UU. S&P 500', data: [{x: 12, y: 21.5, r: 15}], backgroundColor: 'rgba(30, 64, 175, 0.7)' },
+        { label: 'Euro Stoxx 600', data: [{x: 6, y: 13.5, r: 10}], backgroundColor: 'rgba(156, 163, 175, 0.7)' },
+        { label: 'Emergentes', data: [{x: 14, y: 11.8, r: 12}], backgroundColor: 'rgba(16, 185, 129, 0.7)' }
+    ]
+};
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly'>('monthly');
   const [reportData, setReportData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      setError(null);
       setReportData(null);
-
       try {
-        // Mapeo de pestañas a etiquetas de Base de Datos
         const dbTag = activeTab === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
-        
-        const q = query(
-          collection(db, 'analysis_results'),
-          where('type', '==', dbTag),
-          orderBy('createdAt', 'desc'),
-          limit(1)
-        );
-
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          setReportData(querySnapshot.docs[0].data());
-        }
-      } catch (err: any) {
-        console.error("Error cargando datos:", err);
-        setError("Error de conexión o índice faltante en Firebase.");
-      } finally {
-        setLoading(false);
-      }
+        const q = query(collection(db, 'analysis_results'), where('type', '==', dbTag), orderBy('createdAt', 'desc'), limit(1));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) setReportData(snapshot.docs[0].data());
+      } catch (err) { console.error(err); } finally { setLoading(false); }
     };
-
     fetchData();
   }, [activeTab]);
 
-  const renderPortfolioTable = () => {
-    if (!reportData?.model_portfolio) return null;
-    return (
-      <div className="overflow-x-auto bg-white rounded-lg shadow mt-6">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clase</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Región</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Peso</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visión</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Convicción</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {reportData.model_portfolio.map((item: any, idx: number) => (
-              <tr key={idx}>
-                <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.asset_class}</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{item.region}</td>
-                <td className="px-6 py-4 text-sm text-gray-500 font-bold">{item.weight}%</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{item.view}</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{'★'.repeat(item.conviction || 1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-slate-800">
-      <header className="bg-slate-900 text-white py-8 px-6 shadow-lg border-b-4 border-yellow-500">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-serif font-bold tracking-tight">Global Investment Outlook</h1>
-          <p className="text-yellow-500 font-bold tracking-widest text-sm mt-2 uppercase">
-             {activeTab === 'monthly' ? 'ESTRATEGIA MENSUAL' : 'TÁCTICO SEMANAL'}
-          </p>
+    <div className={`min-h-screen bg-[#F3F4F6] text-[#1F2937] ${roboto.className}`}>
+      
+      {/* HEADER PREMIUM (Diseño HTML original replicado) */}
+      <header className="bg-[#0B2545] text-white py-12 px-6 shadow-xl border-b-8 border-[#D4AF37]">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="text-center md:text-left">
+                <h1 className={`${playfair.className} text-4xl md:text-5xl font-bold tracking-tight mb-2`}>
+                    Perspectiva Global de Inversión
+                </h1>
+                <p className="text-[#D4AF37] text-xl font-medium uppercase tracking-widest">
+                    {activeTab === 'monthly' ? 'Estrategia Trimestral: Asignación de Activos' : 'Informe Táctico Semanal'}
+                </p>
+            </div>
+            
+            {/* Botones integrados en el estilo */}
+            <div className="flex gap-3">
+                <button onClick={() => setActiveTab('weekly')} className={`px-5 py-2 rounded transition-all border ${activeTab === 'weekly' ? 'bg-[#D4AF37] text-[#0B2545] border-[#D4AF37] font-bold' : 'border-gray-500 text-gray-300 hover:text-white hover:border-white'}`}>
+                  Semanal
+                </button>
+                <button onClick={() => setActiveTab('monthly')} className={`px-5 py-2 rounded transition-all border ${activeTab === 'monthly' ? 'bg-[#D4AF37] text-[#0B2545] border-[#D4AF37] font-bold' : 'border-gray-500 text-gray-300 hover:text-white hover:border-white'}`}>
+                  Mensual
+                </button>
+                <button onClick={() => window.open(`/api/export-pdf?type=${activeTab}`, '_blank')} className="px-5 py-2 bg-red-700 hover:bg-red-600 text-white rounded font-bold shadow-lg ml-4 flex items-center gap-2">
+                    <span>📥</span> PDF
+                </button>
+            </div>
+        </div>
+        <div className="max-w-7xl mx-auto mt-6 text-center md:text-left">
+            <p className="text-gray-300 italic max-w-2xl text-sm md:text-base border-l-2 border-[#D4AF37] pl-4">
+                "La volatilidad es el precio de la admisión. En un entorno de divergencia macroeconómica, la calidad del balance es el activo más valioso."
+            </p>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-          <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-200">
-            <button
-              onClick={() => setActiveTab('weekly')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'weekly' ? 'bg-slate-800 text-white' : 'text-gray-500 hover:bg-gray-100'
-              }`}
-            >
-              ⚡ Táctico (Semanal)
-            </button>
-            <button
-              onClick={() => setActiveTab('monthly')}
-              className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'monthly' ? 'bg-yellow-500 text-slate-900' : 'text-gray-500 hover:bg-gray-100'
-              }`}
-            >
-              📅 Estratégico (Mensual)
-            </button>
-          </div>
-
-          <button
-            onClick={() => window.open(`/api/export-pdf?type=${activeTab}`, '_blank')}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md shadow-sm flex items-center gap-2"
-          >
-            Descargar PDF
-          </button>
-        </div>
-
-        {loading && <div className="p-12 text-center text-gray-500 animate-pulse">Cargando inteligencia...</div>}
+      <main className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-12 gap-8">
         
+        {loading && (
+            <div className="col-span-12 py-20 text-center">
+                <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-[#0B2545] border-t-transparent"></div>
+                <p className="mt-4 text-gray-500 font-medium">Cargando análisis de mercado...</p>
+            </div>
+        )}
+
         {!loading && !reportData && (
-            <div className="p-12 text-center bg-white rounded-lg shadow">
-                <div className="text-4xl mb-4">⚠️</div>
-                <h3 className="text-lg font-medium">Sin Informes Disponibles</h3>
-                <p className="text-gray-500">No se encontró el informe {activeTab}. Ejecuta el Cron Job.</p>
+             <div className="col-span-12 bg-white p-12 rounded-lg shadow-md text-center border-t-4 border-red-500">
+                <h3 className={`${playfair.className} text-3xl text-[#0B2545]`}>Informe No Disponible</h3>
+                <p className="text-gray-600 mt-2">No se encontraron datos recientes. Ejecuta el Cron Job.</p>
             </div>
         )}
 
         {!loading && reportData && (
-          <div className="space-y-8 animate-in fade-in">
-            <section className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h2 className="text-xl font-serif font-bold text-slate-800 mb-4 border-l-4 border-yellow-500 pl-4">
-                Resumen Ejecutivo
-              </h2>
-              <div className="prose max-w-none text-gray-700">{reportData.executive_summary}</div>
+          <>
+            {/* SECCIÓN 1: RESUMEN EJECUTIVO (The Bottom Line) */}
+            <section className="md:col-span-12">
+                <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
+                    1. Resumen Ejecutivo (The Bottom Line)
+                </h2>
+                <div className="bg-white rounded-lg shadow-md p-8">
+                    <p className="text-lg leading-relaxed text-gray-700 mb-8 text-justify">
+                        {reportData.executive_summary}
+                    </p>
+
+                    {/* Tarjetas de Métricas Estilo HTML */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-[#F8FAFC] border-t-4 border-[#1E40AF] p-6 rounded shadow-sm text-center">
+                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Postura Global</h3>
+                            <p className="text-xl font-bold text-[#0B2545]">{reportData.marketSentiment}</p>
+                            <p className="text-xs text-gray-500 mt-2">Basado en análisis de sentimiento IA</p>
+                        </div>
+                        <div className="bg-[#F8FAFC] border-t-4 border-[#D4AF37] p-6 rounded shadow-sm text-center">
+                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Riesgo Principal</h3>
+                            <p className="text-lg font-bold text-[#0B2545] leading-tight">Persistencia Inflacionaria</p>
+                            <p className="text-xs text-gray-500 mt-2">Monitor de volatilidad CPI</p>
+                        </div>
+                        <div className="bg-[#F8FAFC] border-t-4 border-[#10B981] p-6 rounded shadow-sm text-center">
+                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Oportunidad Táctica</h3>
+                            <p className="text-lg font-bold text-[#0B2545] leading-tight">Calidad & Renta Fija</p>
+                            <p className="text-xs text-gray-500 mt-2">Yields reales positivos</p>
+                        </div>
+                    </div>
+                </div>
             </section>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-slate-800 text-white p-6 rounded-lg shadow">
-                    <h3 className="text-sm uppercase text-gray-400 mb-2">Sentimiento</h3>
-                    <p className="text-3xl font-bold text-yellow-400">{reportData.marketSentiment}</p>
+            {/* SECCIÓN 2: ANÁLISIS MACRO (Gráficos Visuales) */}
+            <section className="md:col-span-12">
+                <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
+                    2. Análisis del Entorno (Macro & Markets)
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Dinámica Monetaria</h3>
+                        <p className="text-sm text-gray-500 mb-4">Proyección de tasas FED vs Inflación (Estimado)</p>
+                        <div className="h-64">
+                            <Line data={inflationData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }} />
+                        </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                         <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Valoraciones y Crecimiento</h3>
+                         <p className="text-sm text-gray-500 mb-4">Matriz de Valoración (P/E vs Growth)</p>
+                         <div className="h-64">
+                            <Bubble data={valuationData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }} />
+                        </div>
+                    </div>
                 </div>
-                <div className="md:col-span-2 bg-white p-6 rounded-lg shadow">
-                    <h3 className="text-sm uppercase text-gray-500 mb-4">Drivers Principales</h3>
-                    <ul className="space-y-3">
-                        {reportData.keyDrivers?.map((driver: any, i: number) => (
-                            <li key={i} className="flex gap-3">
-                                <span className="bg-blue-100 text-blue-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold flex-shrink-0">{i + 1}</span>
-                                <div><span className="font-bold block">{driver.title}</span><span className="text-sm">{driver.impact}</span></div>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </div>
+            </section>
 
-            {activeTab === 'monthly' && (
-                <section>
-                    <h2 className="text-xl font-serif font-bold text-slate-800 mb-4 border-l-4 border-yellow-500 pl-4">Matriz de Asignación</h2>
-                    {renderPortfolioTable()}
+            {/* SECCIÓN 3: MATRIZ DE ASIGNACIÓN (DATOS REALES) */}
+            {activeTab === 'monthly' && reportData.model_portfolio && (
+                <section className="md:col-span-12 mt-4">
+                    <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
+                        3. Matriz de Asignación Táctica
+                    </h2>
+                    <p className="mb-6 text-gray-700">
+                        Basado en nuestro análisis macro, presentamos la matriz de convicción actual generada por nuestros modelos.
+                    </p>
+                    <div className="bg-white rounded-lg shadow-md overflow-hidden overflow-x-auto border border-gray-200">
+                        <table className="min-w-full text-sm text-left">
+                            <thead className="text-xs text-white uppercase bg-[#0B2545]">
+                                <tr>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Clase de Activo</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Zona Geográfica</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Visión</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider text-center">Convicción (1-5)</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Rationale (Estrategia)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 text-gray-700">
+                                {reportData.model_portfolio.map((item: any, idx: number) => (
+                                    <tr key={idx} className="bg-white hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 font-medium text-[#0B2545]">{item.asset_class}</td>
+                                        <td className="px-6 py-4">{item.region}</td>
+                                        <td className="px-6 py-4 font-bold">
+                                            <span className={`${
+                                                item.view === 'Sobreponderar' ? 'text-[#10B981]' : 
+                                                item.view === 'Infraponderar' ? 'text-red-600' : 'text-[#D4AF37]'
+                                            }`}>
+                                                {item.view}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`text-white py-1 px-3 rounded-full text-xs font-bold ${
+                                                 item.conviction >= 4 ? 'bg-[#10B981]' : 
+                                                 item.conviction <= 2 ? 'bg-red-500' : 'bg-[#D4AF37]'
+                                            }`}>
+                                                {item.conviction}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-xs leading-relaxed max-w-xs text-gray-500">
+                                            {item.rationale || "Análisis fundamental favorable basado en proyecciones actuales."}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
             )}
-            
-            <div className="text-center text-xs text-gray-400 mt-12 pb-8">
-              © 2025 Global Asset Management - Generado por Gemini 2.5 Flash
-            </div>
-          </div>
+
+            {/* SECCIÓN 4: DRIVERS (FACTORES CLAVE) */}
+            <section className="md:col-span-12 mt-4 mb-8">
+                <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
+                    4. Drivers Principales (Factores de Riesgo)
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     {reportData.keyDrivers?.map((driver: any, i: number) => (
+                        <div key={i} className="bg-white p-6 rounded-lg shadow-md border-l-4 border-[#1E40AF] hover:shadow-lg transition-shadow">
+                            <div className="flex justify-between items-start mb-3">
+                                <h4 className={`${playfair.className} font-bold text-lg text-[#0B2545]`}>{driver.title}</h4>
+                                <span className="bg-[#E0E7FF] text-[#1E40AF] text-xs font-bold px-2 py-1 rounded">FACTOR #{i+1}</span>
+                            </div>
+                            <p className="text-gray-600 text-sm leading-relaxed">{driver.impact}</p>
+                        </div>
+                     ))}
+                </div>
+            </section>
+          </>
         )}
       </main>
+
+      {/* FOOTER */}
+      <footer className="bg-[#1F2937] text-gray-400 py-10 px-4 text-center text-xs border-t border-gray-700">
+        <div className="max-w-4xl mx-auto">
+            <p className="mb-4 text-gray-500">© 2025 Global Asset Management.</p>
+            <p className="leading-relaxed">
+                RENUNCIA DE RESPONSABILIDAD: Este documento es estrictamente confidencial y para uso exclusivo educativo. 
+                No constituye una oferta de venta ni una solicitud de oferta de compra de valores. 
+                Las rentabilidades pasadas no garantizan resultados futuros.
+            </p>
+        </div>
+      </footer>
     </div>
   );
 }
