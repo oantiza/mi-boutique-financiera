@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/analizar?type=weekly",
-      "schedule": "0 10 * * 6"
+      "path": "/api/research?type=weekly",
+      "schedule": "0 7 * * 1"
     },
     {
-      "path": "/api/analizar?type=monthly",
-      "schedule": "0 8 1 * *"
+      "path": "/api/research?type=monthly",
+      "schedule": "0 7 1 * *"
     }
   ]
 }
