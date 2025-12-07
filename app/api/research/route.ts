@@ -8,126 +8,124 @@ function getDB() {
   if (getApps().length > 0) {
     return getFirestore(getApp());
   }
-
-  // Parseamos la clave JSON del entorno
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
-
-  initializeApp({
-    credential: cert(serviceAccount)
-  });
-
+  initializeApp({ credential: cert(serviceAccount) });
   return getFirestore();
 }
 
 // --- 2. CONFIGURACIÓN DE GEMINI ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// --- 3. PROMPTS DEL SISTEMA (CIO) ---
+// --- 3. PROMPTS DEL SISTEMA ---
 const SYSTEM_PROMPT_WEEKLY = `
-Actúa como el Chief Investment Officer (CIO) de una firma de gestión de activos global.
-Tu tarea es generar un informe "Táctico Semanal" en formato JSON estricto.
-Analiza el entorno macroeconómico actual, riesgos geopolíticos y flujos de mercado.
+Eres el Chief Investment Officer (CIO). Tu tarea es generar un informe "Táctico Semanal".
+IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
+NO escribas introducciones como "Aquí está el informe".
+NO uses bloques de código markdown (\`\`\`json).
+Empieza directamente con { y termina con }.
 
-IMPORTANTE: Devuelve SOLO JSON válido. No uses bloques de código markdown.
-La estructura del JSON debe ser esta:
+Estructura requerida:
 {
-  "executive_summary": "Texto resumen profesional...",
+  "executive_summary": "Resumen del entorno macro...",
   "marketSentiment": "Bullish / Neutral / Bearish",
   "keyDrivers": [
-    {"title": "Nombre del driver", "impact": "Explicación breve"}
+    {"title": "Driver 1", "impact": "Impacto..."}
   ],
-  "thesis": { "content": "Tesis de inversión para la semana..." }
+  "thesis": { "content": "Tesis de inversión..." }
 }
 `;
 
 const SYSTEM_PROMPT_MONTHLY = `
-Actúa como el Chief Investment Officer (CIO). Genera la "Estrategia Mensual de Asignación de Activos".
-Debes definir una cartera modelo y la visión estratégica.
+Eres el CIO. Genera la "Estrategia Mensual de Asignación de Activos".
+IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
+NO escribas introducciones. NO uses markdown.
+Empieza directamente con { y termina con }.
 
-IMPORTANTE: Devuelve SOLO JSON válido.
-La estructura del JSON debe ser esta:
+Estructura requerida:
 {
-  "executive_summary": "Visión macroeconómica del mes...",
+  "executive_summary": "Visión mensual...",
   "marketSentiment": "Cautiously Optimistic / Neutral / Defensive",
   "model_portfolio": [
     { "asset_class": "Renta Variable", "region": "EE.UU.", "weight": 25, "view": "Sobreponderar", "conviction": 4 },
-    { "asset_class": "Renta Variable", "region": "Europa", "weight": 15, "view": "Neutral", "conviction": 3 },
-    { "asset_class": "Renta Fija", "region": "Bonos Gobierno 10Y", "weight": 30, "view": "Infraponderar", "conviction": 2 },
-    { "asset_class": "Efectivo", "region": "Global", "weight": 10, "view": "Neutral", "conviction": 5 }
-    // ... añade más clases hasta sumar 100% o cerca
+    { "asset_class": "Renta Fija", "region": "Bonos Gob.", "weight": 30, "view": "Neutral", "conviction": 3 }
   ],
   "keyDrivers": [
-     {"title": "Inflación", "impact": "Análisis..."},
-     {"title": "Tipos de Interés", "impact": "Análisis..."}
+     {"title": "Inflación", "impact": "Análisis..."}
   ]
 }
 `;
 
-// --- 4. MANEJADOR DE LA PETICIÓN (GET) ---
+// --- 4. MANEJADOR GET ---
 export async function GET(request: Request) {
   try {
-    // 1. Leer parámetros (weekly o monthly)
     const { searchParams } = new URL(request.url);
     const typeParam = searchParams.get('type') || 'monthly';
 
-    // 2. DEFINIR LA ETIQUETA CORRECTA PARA LA BASE DE DATOS
-    // Esto soluciona el error de "Sin Informes Disponibles"
     const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
-    
-    // 3. Seleccionar el Prompt adecuado
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
-    const modelName = "gemini-1.5-flash"; // Modelo estable y rápido
+    
+    // --- ACTUALIZACIÓN A GEMINI 2.5 FLASH ---
+    const modelName = "gemini-2.5-flash"; 
 
-    console.log(`🚀 Iniciando generación (${typeParam})...`);
+    console.log(`🚀 Iniciando Deep Research (${typeParam.toUpperCase()}) con ${modelName}...`);
 
-    // 4. Llamar a Gemini
     const model = genAI.getGenerativeModel({ 
         model: modelName,
         systemInstruction: systemInstruction
     });
 
     const result = await model.generateContent(
-        `Genera el informe de inversión para la fecha actual: ${new Date().toLocaleDateString()}. Usa datos realistas y coherentes.`
+        `Genera el informe con fecha de corte: ${new Date().toLocaleDateString()}. Sé analítico y profesional.`
     );
     
     const responseText = result.response.text();
 
-    // 5. Limpiar y Parsear el JSON
-    // A veces la IA devuelve ```json ... ```, esto lo limpia
-    const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    let aiData;
-    
-    try {
-        aiData = JSON.parse(cleanedText);
-    } catch (e) {
-        console.error("Error parseando JSON de IA:", responseText);
-        return NextResponse.json({ success: false, error: "La IA devolvió un formato inválido." }, { status: 500 });
+    // --- 5. EXTRACCIÓN ROBUSTA DE JSON ---
+    const firstBrace = responseText.indexOf('{');
+    const lastBrace = responseText.lastIndexOf('}');
+
+    if (firstBrace === -1 || lastBrace === -1) {
+        throw new Error("La IA no devolvió un JSON válido (faltan llaves {}).");
     }
 
-    // 6. GUARDAR EN FIRESTORE (Con la etiqueta corregida)
+    const jsonString = responseText.substring(firstBrace, lastBrace + 1);
+    
+    let aiData;
+    try {
+        aiData = JSON.parse(jsonString);
+    } catch (e) {
+        console.error("❌ Fallo al parsear JSON extraído:", jsonString);
+        throw new Error("Sintaxis JSON inválida recibida de la IA.");
+    }
+
+    // --- 6. GUARDAR EN FIRESTORE ---
     const db = getDB();
     await db.collection('analysis_results').add({
         ...aiData,
-        type: dbTag, // <--- AQUÍ ESTÁ LA SOLUCIÓN: Forzamos el nombre correcto
+        type: dbTag, 
         createdAt: new Date().toISOString(),
-        date: new Date().toISOString().split('T')[0] // Formato YYYY-MM-DD
+        date: new Date().toISOString().split('T')[0]
     });
 
-    console.log("✅ Informe guardado correctamente en Firebase.");
+    console.log(`✅ Informe ${typeParam} guardado con éxito.`);
 
     return NextResponse.json({
       success: true,
       mode: typeParam,
-      message: "Informe generado y guardado correctamente."
+      message: "Informe generado correctamente."
     });
 
   } catch (error: any) {
-    console.error("❌ Error en el servidor:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("❌ Error en Deep Research:", error);
+    // Añadimos info extra al error para debuggear si el nombre del modelo falla
+    return NextResponse.json({ 
+        success: false, 
+        error: error.message,
+        details: "Verifica si el nombre del modelo 'gemini-2.5-flash' es correcto en tu cuenta de Google AI."
+    }, { status: 500 });
   }
 }
 
-// --- 5. MANEJADOR DE POST (Para Emails - Opcional, mantenemos estructura) ---
 export async function POST(request: Request) {
-    return NextResponse.json({ message: "Endpoint de ingesta de emails listo." });
+    return NextResponse.json({ message: "Endpoint POST listo." });
 }
