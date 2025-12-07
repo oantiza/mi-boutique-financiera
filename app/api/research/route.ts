@@ -26,12 +26,12 @@ export async function GET(request: Request) {
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
     // --- CAMBIO CLAVE: MODELO ESTÁNDAR ---
-    // Usamos 'gemini-1.5-flash-latest' que nunca falla por versión.
+    // Usamos 'gemini-1.5-flash-latest' que es el alias estable actual.
     const modelName = "gemini-1.5-flash-latest"; 
 
     // --- LOG DE DEPURACIÓN (Busca esto en Vercel) ---
-    console.log(`\n\n📢 --- INICIO DE EJECUCIÓN NUEVA ---`);
-    console.log(`📢 INTENTANDO USAR MODELO: ${modelName}`);
+    console.log(`\n\n📢 --- INICIO DE EJECUCIÓN DEPURADA ---`);
+    console.log(`📢 MODELO SELECCIONADO: ${modelName}`);
     console.log(`📢 TIPO: ${typeParam}\n\n`);
 
     const model = genAI.getGenerativeModel({ 
@@ -40,19 +40,20 @@ export async function GET(request: Request) {
     });
 
     const result = await model.generateContent(
-        `Genera el informe con fecha: ${new Date().toLocaleDateString()}. JSON puro.`
+        `Genera el informe con fecha: ${new Date().toLocaleDateString()}. Responde SOLO con JSON.`
     );
     
     const responseText = result.response.text();
 
-    // Limpieza JSON
+    // Limpieza JSON (Tu corrección de sintaxis)
     const firstBrace = responseText.indexOf('{');
     const lastBrace = responseText.lastIndexOf('}');
-    if (firstBrace === -1) throw new Error("La IA no devolvió JSON.");
+    
+    if (firstBrace === -1) throw new Error("La IA no devolvió JSON válido.");
     
     const aiData = JSON.parse(responseText.substring(firstBrace, lastBrace + 1));
 
-    // Guardar en DB
+    // Guardar en DB (Tu corrección de etiquetas)
     const db = getDB();
     await db.collection('analysis_results').add({
         ...aiData,
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
         success: false, 
         error: error.message,
-        details: "Revisa los logs de Vercel para ver el mensaje con 📢"
+        details: "Si no ves el mensaje con 📢 en los logs, Vercel no ha actualizado el código."
     }, { status: 500 });
   }
 }

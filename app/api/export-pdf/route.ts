@@ -1,168 +1,79 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import PDFDocument from 'pdfkit';
 
-// --- 1. CONEXIÓN A BASE DE DATOS ROBUSTA ---
+// --- 1. CONFIGURACIÓN FIREBASE ---
 function getDB() {
   if (getApps().length > 0) return getFirestore(getApp());
-  
-  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!serviceAccountString) {
-      throw new Error("Faltan credenciales de Firebase en el entorno.");
-  }
-
-  // Parseamos el JSON unificado y limpio
-  const serviceAccount = JSON.parse(serviceAccountString);
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
   initializeApp({ credential: cert(serviceAccount) });
-  
   return getFirestore();
 }
+
+// --- 2. CONFIGURACIÓN GEMINI ---
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+// --- 3. PROMPTS ---
+const SYSTEM_PROMPT_WEEKLY = `Genera un JSON válido para reporte semanal. {"executive_summary": "...", "marketSentiment": "...", "keyDrivers": [], "thesis": {}}`;
+const SYSTEM_PROMPT_MONTHLY = `Genera un JSON válido para reporte mensual. {"executive_summary": "...", "marketSentiment": "...", "model_portfolio": [], "keyDrivers": []}`;
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'monthly'; // 'monthly' o 'weekly'
+    const typeParam = searchParams.get('type') || 'monthly';
+    const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
+    const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
-    // Mapeo inverso: de URL a etiqueta de Base de Datos
-    const dbTag = type === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
-    const reportTitle = type === 'monthly' ? 'ESTRATEGIA MENSUAL' : 'TÁCTICO SEMANAL';
+    // --- CAMBIO CLAVE: MODELO ESTÁNDAR ---
+    // Usamos 'gemini-1.5-flash-latest' que es el alias estable actual.
+    const modelName = "gemini-1.5-flash-latest"; 
 
-    // --- 2. OBTENER DATOS DE FIRESTORE ---
+    // --- LOG DE DEPURACIÓN (Busca esto en Vercel) ---
+    console.log(`\n\n📢 --- INICIO DE EJECUCIÓN DEPURADA ---`);
+    console.log(`📢 MODELO SELECCIONADO: ${modelName}`);
+    console.log(`📢 TIPO: ${typeParam}\n\n`);
+
+    const model = genAI.getGenerativeModel({ 
+        model: modelName,
+        systemInstruction: systemInstruction
+    });
+
+    const result = await model.generateContent(
+        `Genera el informe con fecha: ${new Date().toLocaleDateString()}. Responde SOLO con JSON.`
+    );
+    
+    const responseText = result.response.text();
+
+    // Limpieza JSON (Tu corrección de sintaxis)
+    const firstBrace = responseText.indexOf('{');
+    const lastBrace = responseText.lastIndexOf('}');
+    
+    if (firstBrace === -1) throw new Error("La IA no devolvió JSON válido.");
+    
+    const aiData = JSON.parse(responseText.substring(firstBrace, lastBrace + 1));
+
+    // Guardar en DB (Tu corrección de etiquetas)
     const db = getDB();
-    const snapshot = await db.collection('analysis_results')
-      .where('type', '==', dbTag)
-      .orderBy('createdAt', 'desc')
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
-      return NextResponse.json({ error: "No se encontró ningún informe para generar." }, { status: 404 });
-    }
-
-    const data = snapshot.docs[0].data();
-
-    // --- 3. GENERAR EL PDF (Streaming) ---
-    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-        const doc = new PDFDocument({ margin: 50, size: 'A4' });
-        const buffers: any[] = [];
-
-        doc.on('data', (chunk) => buffers.push(chunk));
-        doc.on('end', () => resolve(Buffer.concat(buffers)));
-        doc.on('error', reject);
-
-        // --- DISEÑO DEL DOCUMENTO ---
-
-        // 1. Cabecera
-        doc.fontSize(24).font('Helvetica-Bold').fillColor('#0F172A').text('Global Investment Outlook', { align: 'center' });
-        doc.moveDown(0.5);
-        
-        // Subtítulo
-        doc.fontSize(14).font('Helvetica').fillColor('#EAB308').text(reportTitle, { align: 'center', characterSpacing: 2 });
-        doc.moveDown(0.5);
-        
-        doc.fontSize(10).fillColor('grey').text(`Fecha de Corte: ${data.date || new Date().toLocaleDateString()}`, { align: 'center' });
-        doc.moveDown(2);
-
-        // Línea divisoria
-        doc.strokeColor('#E2E8F0').moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-        doc.moveDown(2);
-
-        // 2. Resumen Ejecutivo
-        doc.fillColor('black');
-        doc.fontSize(16).font('Helvetica-Bold').text('Resumen Ejecutivo');
-        doc.moveDown(0.5);
-        doc.fontSize(11).font('Helvetica').text(data.executive_summary || "Sin resumen disponible.", {
-            align: 'justify',
-            lineGap: 4
-        });
-        doc.moveDown(2);
-
-        // 3. Sentimiento
-        doc.fontSize(16).font('Helvetica-Bold').text('Sentimiento de Mercado');
-        doc.fontSize(14).fillColor('#EAB308').text(data.marketSentiment || "Neutral", { indent: 0 });
-        doc.fillColor('black'); // Reset color
-        doc.moveDown(2);
-
-        // 4. Matriz de Asignación (Solo Monthly)
-        if (type === 'monthly' && data.model_portfolio && Array.isArray(data.model_portfolio)) {
-            if (doc.y > 500) doc.addPage();
-
-            doc.fontSize(16).font('Helvetica-Bold').text('Matriz de Asignación de Activos');
-            doc.moveDown();
-
-            const startX = 50;
-            let currentY = doc.y;
-            const rowHeight = 30;
-
-            // Cabecera de Tabla
-            doc.fontSize(10).font('Helvetica-Bold');
-            doc.text("Clase", startX, currentY);
-            doc.text("Región", startX + 100, currentY);
-            doc.text("Peso", startX + 200, currentY);
-            doc.text("Visión", startX + 280, currentY);
-            
-            // Línea debajo cabecera
-            currentY += 15;
-            doc.moveTo(startX, currentY).lineTo(545, currentY).stroke();
-            currentY += 10;
-
-            // Filas
-            doc.font('Helvetica').fontSize(10);
-            data.model_portfolio.forEach((item: any) => {
-                if (currentY > 750) { doc.addPage(); currentY = 50; }
-
-                doc.text(item.asset_class || "-", startX, currentY, { width: 90 });
-                doc.text(item.region || "-", startX + 100, currentY, { width: 90 });
-                doc.font('Helvetica-Bold').text(`${item.weight}%`, startX + 200, currentY);
-                doc.font('Helvetica').text(item.view || "-", startX + 280, currentY);
-                
-                currentY += rowHeight;
-            });
-            doc.moveDown(2);
-        }
-
-        // 5. Drivers
-        if (data.keyDrivers && Array.isArray(data.keyDrivers)) {
-            if (doc.y > 600) doc.addPage();
-            
-            doc.fontSize(16).font('Helvetica-Bold').text('Drivers Principales');
-            doc.moveDown();
-            
-            data.keyDrivers.forEach((driver: any) => {
-                 doc.fontSize(12).font('Helvetica-Bold').text(`• ${driver.title || "Driver"}`);
-                 doc.fontSize(10).font('Helvetica').text(driver.impact || "-", { indent: 15, align: 'justify' });
-                 doc.moveDown(1);
-            });
-        }
-
-        // Footer
-        const pages = doc.bufferedPageRange();
-        for (let i = 0; i < pages.count; i++) {
-            doc.switchToPage(i);
-            doc.fontSize(8).fillColor('grey').text(
-                `Generado por AI (Gemini 2.5) - ${new Date().toLocaleDateString()}`,
-                50,
-                doc.page.height - 50,
-                { align: 'center' }
-            );
-        }
-
-        doc.end();
+    await db.collection('analysis_results').add({
+        ...aiData,
+        type: dbTag, 
+        createdAt: new Date().toISOString(),
+        date: new Date().toISOString().split('T')[0]
     });
 
-    // --- 4. RESPUESTA HTTP ---
-    // FIX: Añadido "as any" para evitar error de tipado estricto con Buffers
-    return new NextResponse(pdfBuffer as any, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="Informe_${type}_${new Date().toISOString().split('T')[0]}.pdf"`,
-      },
-    });
+    console.log("✅ ÉXITO: Informe guardado.");
+
+    return NextResponse.json({ success: true, mode: typeParam, message: "OK" });
 
   } catch (error: any) {
-    console.error("Error generando PDF:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("❌ ERROR FATAL:", error);
+    return NextResponse.json({ 
+        success: false, 
+        error: error.message,
+        details: "Si no ves el mensaje con 📢 en los logs, Vercel no ha actualizado el código."
+    }, { status: 500 });
   }
 }
+
+export async function POST(request: Request) { return NextResponse.json({ ok: true }); }
