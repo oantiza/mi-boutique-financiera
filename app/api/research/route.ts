@@ -1,16 +1,33 @@
 import { NextResponse } from 'next/server';
-// Usamos la librería clásica pero forzamos los tipos nuevos
+// Importamos la librería de Google (forzando tipos si es necesario)
 import { GoogleGenerativeAI } from '@google/generative-ai'; 
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
 // --- 1. CONFIGURACIÓN ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// Inicialización de Firebase (Singleton)
+// Inicialización de Firebase con Credenciales de Servicio (CORRECCIÓN CRÍTICA)
 if (!getApps().length) {
-  initializeApp(); 
+  // En Vercel, necesitamos pasar las credenciales explícitamente
+  const serviceAccount = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    // Reemplazo vital: Vercel a veces escapa los saltos de línea, esto lo arregla
+    privateKey: process.env.FIREBASE_PRIVATE_KEY 
+      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
+      : undefined,
+  };
+
+  // Solo inicializamos si tenemos las claves (para evitar error en build time si faltan)
+  if (serviceAccount.projectId) {
+      initializeApp({
+        credential: cert(serviceAccount)
+      });
+  }
 }
+
+// Obtenemos la instancia de Firestore (si falló la init arriba, esto lanzará error controlado)
 const db = getFirestore();
 
 // --- 2. DEFINICIÓN DE PROMPTS Y ROLES ---
@@ -47,12 +64,10 @@ export async function GET(request: Request) {
 
     console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()}) con Gemini 2.5 Flash...`);
 
-    // CAMBIO CRÍTICO: Modelo 2.5 Flash (Estándar 2025)
     const model = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash", 
       tools: [
-        // FIX DE TYPESCRIPT: 'as any' es obligatorio aquí porque la librería @google/generative-ai
-        // tiene definiciones de tipos antiguas que no incluyen 'googleSearch' todavía.
+        // FIX TYPESCRIPT: forzamos el tipo
         { googleSearch: {} } as any 
       ] 
     });
@@ -83,13 +98,9 @@ export async function GET(request: Request) {
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let text = response.text();
-    
-    // Limpieza de Markdown
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
     const reportData = JSON.parse(text);
 
-    // Guardar en Firestore
     const collectionName = 'analysis_results';
     const dbTag = type === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
 
@@ -101,10 +112,11 @@ export async function GET(request: Request) {
       model: "gemini-2.5-flash"
     });
 
-    return NextResponse.json({ success: true, mode: type, message: "Informe generado con Gemini 2.5" });
+    return NextResponse.json({ success: true, mode: type, message: "Informe generado correctamente." });
 
   } catch (error: any) {
     console.error("❌ Error en Deep Research:", error);
+    // Mensaje de error más descriptivo si falla la auth
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
