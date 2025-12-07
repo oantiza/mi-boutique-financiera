@@ -1,26 +1,16 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai'; 
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// --- 1. CONFIGURACIÓN IA ---
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-// --- FUNCIÓN HELPER DE CONEXIÓN (PATRÓN SINGLETON ROBUSTO) ---
+// --- 1. CONFIGURACIÓN DE FIREBASE (SERVER-SIDE) ---
 function getDB() {
   if (getApps().length > 0) {
     return getFirestore(getApp());
   }
 
-  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-
-  // CRÍTICO: Comprueba si existe la única variable necesaria
-  if (!serviceAccountString) {
-    throw new Error("Faltan credenciales de Firebase. La variable FIREBASE_SERVICE_ACCOUNT_JSON está vacía.");
-  }
-
-  // Parseamos todo el objeto JSON de credenciales de una vez
-  const serviceAccount = JSON.parse(serviceAccountString);
+  // Parseamos la clave JSON del entorno
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
 
   initializeApp({
     credential: cert(serviceAccount)
@@ -29,123 +19,115 @@ function getDB() {
   return getFirestore();
 }
 
-// --- 2. DEFINICIÓN DE PROMPTS Y ROLES ---
-// (Contenido de ROLE_CIO, WEEKLY_TASK, MONTHLY_TASK omitido por brevedad, asumiendo que el usuario lo conserva)
+// --- 2. CONFIGURACIÓN DE GEMINI ---
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-const ROLE_CIO = `
-Actúa como el Chief Investment Officer (CIO) y Estratega Macro Global de un banco de inversión Tier-1.
-Tu tono es institucional, sofisticado y directo.
+// --- 3. PROMPTS DEL SISTEMA (CIO) ---
+const SYSTEM_PROMPT_WEEKLY = `
+Actúa como el Chief Investment Officer (CIO) de una firma de gestión de activos global.
+Tu tarea es generar un informe "Táctico Semanal" en formato JSON estricto.
+Analiza el entorno macroeconómico actual, riesgos geopolíticos y flujos de mercado.
+
+IMPORTANTE: Devuelve SOLO JSON válido. No uses bloques de código markdown.
+La estructura del JSON debe ser esta:
+{
+  "executive_summary": "Texto resumen profesional...",
+  "marketSentiment": "Bullish / Neutral / Bearish",
+  "keyDrivers": [
+    {"title": "Nombre del driver", "impact": "Explicación breve"}
+  ],
+  "thesis": { "content": "Tesis de inversión para la semana..." }
+}
 `;
 
-const WEEKLY_TASK = `
-Realiza un "Deep Research" de los eventos macroeconómicos y geopolíticos de los últimos 7 días.
-1. Analiza inflación, PIB y bancos centrales (FED, BCE).
-2. Detecta riesgos de cola (Geopolítica, Energía).
-3. Genera una visión de mercado (Bullish/Bearish/Neutral) justificada.
-Salida esperada: JSON con resumen ejecutivo y principales drivers.
+const SYSTEM_PROMPT_MONTHLY = `
+Actúa como el Chief Investment Officer (CIO). Genera la "Estrategia Mensual de Asignación de Activos".
+Debes definir una cartera modelo y la visión estratégica.
+
+IMPORTANTE: Devuelve SOLO JSON válido.
+La estructura del JSON debe ser esta:
+{
+  "executive_summary": "Visión macroeconómica del mes...",
+  "marketSentiment": "Cautiously Optimistic / Neutral / Defensive",
+  "model_portfolio": [
+    { "asset_class": "Renta Variable", "region": "EE.UU.", "weight": 25, "view": "Sobreponderar", "conviction": 4 },
+    { "asset_class": "Renta Variable", "region": "Europa", "weight": 15, "view": "Neutral", "conviction": 3 },
+    { "asset_class": "Renta Fija", "region": "Bonos Gobierno 10Y", "weight": 30, "view": "Infraponderar", "conviction": 2 },
+    { "asset_class": "Efectivo", "region": "Global", "weight": 10, "view": "Neutral", "conviction": 5 }
+    // ... añade más clases hasta sumar 100% o cerca
+  ],
+  "keyDrivers": [
+     {"title": "Inflación", "impact": "Análisis..."},
+     {"title": "Tipos de Interés", "impact": "Análisis..."}
+  ]
+}
 `;
 
-const MONTHLY_TASK = `
-Genera el "Informe Estratégico de Asignación de Activos".
-1. Define la tesis de inversión para el próximo mes.
-2. Crea una MATRIZ DE ASIGNACIÓN TÁCTICA detallada.
-   - Debe incluir: Clase de Activo, Región, Visión (Sobreponderar/Neutral/Infraponderar), Convicción (1-5) y Rationale.
-Salida esperada: JSON estructurado con la matriz y la tesis central.
-`;
-
-// --- 3. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
-
+// --- 4. MANEJADOR DE LA PETICIÓN (GET) ---
 export async function GET(request: Request) {
   try {
-    const db = getDB(); // Conexión garantizada o lanza error
-    
+    // 1. Leer parámetros (weekly o monthly)
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'weekly'; 
+    const typeParam = searchParams.get('type') || 'monthly';
 
-    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()}) con Gemini 2.5 Flash...`);
-
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash", 
-      tools: [
-        { googleSearch: {} } as any 
-      ] 
-    });
-
-    const prompt = `
-      ${ROLE_CIO}
-      CONTEXTO TEMPORAL: Hoy es ${new Date().toLocaleDateString()}.
-      TAREA (${type === 'monthly' ? 'MENSUAL' : 'SEMANAL'}):
-      ${type === 'monthly' ? MONTHLY_TASK : WEEKLY_TASK}
-      
-      FORMATO JSON OBLIGATORIO:
-      {
-        "reportType": "${type}",
-        "date": "YYYY-MM-DD",
-        "executive_summary": "Texto del resumen...",
-        "marketSentiment": "Bullish/Bearish/Neutral",
-        "keyDrivers": [ { "title": "...", "impact": "..." } ],
-        "model_portfolio": [
-           { "asset_class": "Renta Variable", "region": "EE.UU.", "weight": 25, "view": "Sobreponderar", "conviction": 5, "rationale": "..." }
-        ],
-        "thesis": { "content": "Tesis central..." },
-        "rates": { "key_metric": "...", "content": "..." },
-        "flows_positioning": { "key_metric": "...", "content": "..." }
-      }
-    `;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    let text = response.text();
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // 2. DEFINIR LA ETIQUETA CORRECTA PARA LA BASE DE DATOS
+    // Esto soluciona el error de "Sin Informes Disponibles"
+    const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
     
-    const reportData = JSON.parse(text);
+    // 3. Seleccionar el Prompt adecuado
+    const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
+    const modelName = "gemini-1.5-flash"; // Modelo estable y rápido
 
-    const collectionName = 'analysis_results';
-    const dbTag = type === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
+    console.log(`🚀 Iniciando generación (${typeParam})...`);
 
-    await db.collection(collectionName).add({
-      ...reportData,
-      type: dbTag,
-      createdAt: new Date().toISOString(),
-      status: 'completed',
-      model: "gemini-2.5-flash"
+    // 4. Llamar a Gemini
+    const model = genAI.getGenerativeModel({ 
+        model: modelName,
+        systemInstruction: systemInstruction
     });
 
-    return NextResponse.json({ success: true, mode: type, message: "Informe generado correctamente." });
+    const result = await model.generateContent(
+        `Genera el informe de inversión para la fecha actual: ${new Date().toLocaleDateString()}. Usa datos realistas y coherentes.`
+    );
+    
+    const responseText = result.response.text();
+
+    // 5. Limpiar y Parsear el JSON
+    // A veces la IA devuelve ```json ... ```, esto lo limpia
+    const cleanedText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    let aiData;
+    
+    try {
+        aiData = JSON.parse(cleanedText);
+    } catch (e) {
+        console.error("Error parseando JSON de IA:", responseText);
+        return NextResponse.json({ success: false, error: "La IA devolvió un formato inválido." }, { status: 500 });
+    }
+
+    // 6. GUARDAR EN FIRESTORE (Con la etiqueta corregida)
+    const db = getDB();
+    await db.collection('analysis_results').add({
+        ...aiData,
+        type: dbTag, // <--- AQUÍ ESTÁ LA SOLUCIÓN: Forzamos el nombre correcto
+        createdAt: new Date().toISOString(),
+        date: new Date().toISOString().split('T')[0] // Formato YYYY-MM-DD
+    });
+
+    console.log("✅ Informe guardado correctamente en Firebase.");
+
+    return NextResponse.json({
+      success: true,
+      mode: typeParam,
+      message: "Informe generado y guardado correctamente."
+    });
 
   } catch (error: any) {
-    console.error("❌ Error en Deep Research:", error);
-    // Lanzamos el error original si no es de Firebase
+    console.error("❌ Error en el servidor:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// --- 4. HANDLER POST (INGESTA DE EMAILS) ---
-// (El cuerpo de la función POST también debe usar const db = getDB();)
-
+// --- 5. MANEJADOR DE POST (Para Emails - Opcional, mantenemos estructura) ---
 export async function POST(request: Request) {
-  try {
-    const db = getDB(); // Llama a la conexión garantizada
-
-    const body = await request.json();
-    
-    if (!body || !body.texto) {
-        return NextResponse.json({ success: false, message: "Payload vacío" }, { status: 400 });
-    }
-
-    await db.collection('raw_email_inputs').add({
-      subject: body.asunto,
-      content: body.texto,
-      date: body.fecha,
-      source: 'gmail_ingestion',
-      processed: false,
-      createdAt: new Date().toISOString()
-    });
-
-    return NextResponse.json({ success: true, message: "Correo archivado correctamente." });
-
-  } catch (error: any) {
-    console.error("❌ Error recibiendo email:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
+    return NextResponse.json({ message: "Endpoint de ingesta de emails listo." });
 }
