@@ -3,31 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  BubbleController
-} from 'chart.js';
-import { Line, Bar, Bubble } from 'react-chartjs-2';
 import { Playfair_Display, Roboto } from 'next/font/google';
 
-// --- 1. CONFIGURACIÓN DE FUENTES ---
+// --- CONFIGURACIÓN DE FUENTES ---
 const playfair = Playfair_Display({ subsets: ['latin'], weight: ['400', '700'] });
 const roboto = Roboto({ subsets: ['latin'], weight: ['300', '400', '500', '700'] });
 
-// --- 2. REGISTRO DE GRÁFICOS ---
-ChartJS.register(
-  CategoryScale, LinearScale, PointElement, LineElement, BarElement, BubbleController, Title, Tooltip, Legend
-);
-
-// --- 3. CONFIGURACIÓN FIREBASE ---
+// --- CONFIGURACIÓN FIREBASE ---
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebaseapp.com",
@@ -39,24 +21,6 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-
-// --- 4. DATOS VISUALES (ESTÉTICA) ---
-// Estos datos recrean los gráficos del HTML para mantener el diseño "lleno" y profesional
-const inflationData = {
-  labels: ['Q4 2024', 'Q1 2025', 'Q2 2025', 'Q3 2025', 'Q4 2025 (Est)'],
-  datasets: [
-    { label: 'Tasa FED', data: [5.33, 5.00, 4.75, 4.50, 4.25], borderColor: '#0B2545', backgroundColor: '#0B2545', tension: 0.1 },
-    { label: 'IPC EE.UU.', data: [3.2, 2.9, 2.7, 2.5, 2.4], borderColor: '#D4AF37', backgroundColor: '#D4AF37', borderDash: [5, 5], tension: 0.3 }
-  ]
-};
-
-const valuationData = {
-    datasets: [
-        { label: 'EE.UU. S&P 500', data: [{x: 12, y: 21.5, r: 15}], backgroundColor: 'rgba(30, 64, 175, 0.7)' },
-        { label: 'Euro Stoxx 600', data: [{x: 6, y: 13.5, r: 10}], backgroundColor: 'rgba(156, 163, 175, 0.7)' },
-        { label: 'Emergentes', data: [{x: 14, y: 11.8, r: 12}], backgroundColor: 'rgba(16, 185, 129, 0.7)' }
-    ]
-};
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly'>('monthly');
@@ -80,7 +44,7 @@ export default function Dashboard() {
   return (
     <div className={`min-h-screen bg-[#F3F4F6] text-[#1F2937] ${roboto.className}`}>
       
-      {/* HEADER PREMIUM (Diseño HTML original replicado) */}
+      {/* HEADER PREMIUM */}
       <header className="bg-[#0B2545] text-white py-12 px-6 shadow-xl border-b-8 border-[#D4AF37]">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="text-center md:text-left">
@@ -88,11 +52,10 @@ export default function Dashboard() {
                     Perspectiva Global de Inversión
                 </h1>
                 <p className="text-[#D4AF37] text-xl font-medium uppercase tracking-widest">
-                    {activeTab === 'monthly' ? 'Estrategia Trimestral: Asignación de Activos' : 'Informe Táctico Semanal'}
+                    {activeTab === 'monthly' ? 'Estrategia Trimestral' : 'Informe Táctico Semanal'}
                 </p>
             </div>
             
-            {/* Botones integrados en el estilo */}
             <div className="flex gap-3">
                 <button onClick={() => setActiveTab('weekly')} className={`px-5 py-2 rounded transition-all border ${activeTab === 'weekly' ? 'bg-[#D4AF37] text-[#0B2545] border-[#D4AF37] font-bold' : 'border-gray-500 text-gray-300 hover:text-white hover:border-white'}`}>
                   Semanal
@@ -106,7 +69,7 @@ export default function Dashboard() {
             </div>
         </div>
         <div className="max-w-7xl mx-auto mt-6 text-center md:text-left">
-            <p className="text-gray-300 italic max-w-2xl text-sm md:text-base border-l-2 border-[#D4AF37] pl-4">
+             <p className="text-gray-300 italic max-w-2xl text-sm md:text-base border-l-2 border-[#D4AF37] pl-4">
                 "La volatilidad es el precio de la admisión. En un entorno de divergencia macroeconómica, la calidad del balance es el activo más valioso."
             </p>
         </div>
@@ -117,20 +80,20 @@ export default function Dashboard() {
         {loading && (
             <div className="col-span-12 py-20 text-center">
                 <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-[#0B2545] border-t-transparent"></div>
-                <p className="mt-4 text-gray-500 font-medium">Cargando análisis de mercado...</p>
+                <p className="mt-4 text-gray-500 font-medium">Cargando análisis...</p>
             </div>
         )}
 
         {!loading && !reportData && (
              <div className="col-span-12 bg-white p-12 rounded-lg shadow-md text-center border-t-4 border-red-500">
                 <h3 className={`${playfair.className} text-3xl text-[#0B2545]`}>Informe No Disponible</h3>
-                <p className="text-gray-600 mt-2">No se encontraron datos recientes. Ejecuta el Cron Job.</p>
+                <p className="text-gray-600 mt-2">No se encontraron datos. Ejecuta el Cron Job en Vercel.</p>
             </div>
         )}
 
         {!loading && reportData && (
           <>
-            {/* SECCIÓN 1: RESUMEN EJECUTIVO (The Bottom Line) */}
+            {/* SECCIÓN 1: RESUMEN EJECUTIVO */}
             <section className="md:col-span-12">
                 <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
                     1. Resumen Ejecutivo (The Bottom Line)
@@ -140,45 +103,68 @@ export default function Dashboard() {
                         {reportData.executive_summary}
                     </p>
 
-                    {/* Tarjetas de Métricas Estilo HTML */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-[#F8FAFC] border-t-4 border-[#1E40AF] p-6 rounded shadow-sm text-center">
                             <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Postura Global</h3>
                             <p className="text-xl font-bold text-[#0B2545]">{reportData.marketSentiment}</p>
-                            <p className="text-xs text-gray-500 mt-2">Basado en análisis de sentimiento IA</p>
                         </div>
                         <div className="bg-[#F8FAFC] border-t-4 border-[#D4AF37] p-6 rounded shadow-sm text-center">
-                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Riesgo Principal</h3>
-                            <p className="text-lg font-bold text-[#0B2545] leading-tight">Persistencia Inflacionaria</p>
-                            <p className="text-xs text-gray-500 mt-2">Monitor de volatilidad CPI</p>
+                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Fecha</h3>
+                            <p className="text-lg font-bold text-[#0B2545]">{reportData.date}</p>
                         </div>
                         <div className="bg-[#F8FAFC] border-t-4 border-[#10B981] p-6 rounded shadow-sm text-center">
-                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Oportunidad Táctica</h3>
-                            <p className="text-lg font-bold text-[#0B2545] leading-tight">Calidad & Renta Fija</p>
-                            <p className="text-xs text-gray-500 mt-2">Yields reales positivos</p>
+                            <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">Oportunidad</h3>
+                            <p className="text-lg font-bold text-[#0B2545]">Calidad & Renta Fija</p>
                         </div>
                     </div>
                 </div>
             </section>
 
-            {/* SECCIÓN 2: ANÁLISIS MACRO (Gráficos Visuales) */}
-            <section className="md:col-span-12">
-                <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
-                    2. Análisis del Entorno (Macro & Markets)
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="bg-white p-6 rounded-lg shadow-md">
-                        <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Dinámica Monetaria</h3>
-                        <p className="text-sm text-gray-500 mb-4">Proyección de tasas FED vs Inflación (Estimado)</p>
-                        <div className="h-64">
-                            <Line data={inflationData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }} />
-                        </div>
+            {/* SECCIÓN 2: GRÁFICOS (Versión compatible sin librerías externas) */}
+            <section className="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Gráfico 1: Dinámica Monetaria */}
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-4`}>Dinámica Monetaria (Proyección)</h3>
+                    <div className="h-48 w-full relative border-l border-b border-gray-300 flex items-end px-2">
+                         {/* Barras simuladas con CSS puro para evitar errores de librería */}
+                         <div className="w-1/5 h-[80%] bg-[#0B2545] mx-1"></div>
+                         <div className="w-1/5 h-[70%] bg-[#0B2545] mx-1"></div>
+                         <div className="w-1/5 h-[60%] bg-[#0B2545] mx-1"></div>
+                         <div className="w-1/5 h-[50%] bg-[#0B2545] mx-1"></div>
+                         <div className="w-1/5 h-[45%] bg-[#0B2545] mx-1"></div>
+                         
+                         {/* Línea superpuesta simulada */}
+                         <div className="absolute top-[40%] w-full h-1 bg-[#D4AF37] opacity-50 border-t-2 border-dashed border-[#D4AF37]"></div>
                     </div>
-                    <div className="bg-white p-6 rounded-lg shadow-md">
-                         <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Valoraciones y Crecimiento</h3>
-                         <p className="text-sm text-gray-500 mb-4">Matriz de Valoración (P/E vs Growth)</p>
-                         <div className="h-64">
-                            <Bubble data={valuationData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }} />
+                    <div className="flex justify-between text-xs text-gray-500 mt-2">
+                        <span>Q4 '24</span><span>Q1 '25</span><span>Q2 '25</span><span>Q3 '25</span><span>Q4 '25</span>
+                    </div>
+                    <p className="text-xs text-center mt-2 font-bold text-[#0B2545]">Barras: Tasa FED | Línea: Inflación</p>
+                </div>
+
+                {/* Gráfico 2: Divergencia PIB */}
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-4`}>Divergencia Crecimiento 2025</h3>
+                    <div className="h-48 flex items-end justify-between gap-2 border-b border-gray-300 pb-2">
+                        <div className="w-full bg-[#1E40AF] relative group" style={{ height: '45%' }}>
+                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-bold">2.1%</span>
+                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-white">USA</span>
+                        </div>
+                        <div className="w-full bg-[#9CA3AF] relative group" style={{ height: '20%' }}>
+                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-bold">0.8%</span>
+                             <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-white">EU</span>
+                        </div>
+                        <div className="w-full bg-[#EF4444] relative group" style={{ height: '85%' }}>
+                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-bold">4.5%</span>
+                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-white">CHN</span>
+                        </div>
+                        <div className="w-full bg-[#D4AF37] relative group" style={{ height: '25%' }}>
+                            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-bold">1.0%</span>
+                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-white">JPN</span>
+                        </div>
+                        <div className="w-full bg-[#10B981] relative group" style={{ height: '65%' }}>
+                             <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-bold">3.8%</span>
+                             <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-white">EM</span>
                         </div>
                     </div>
                 </div>
@@ -190,18 +176,15 @@ export default function Dashboard() {
                     <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
                         3. Matriz de Asignación Táctica
                     </h2>
-                    <p className="mb-6 text-gray-700">
-                        Basado en nuestro análisis macro, presentamos la matriz de convicción actual generada por nuestros modelos.
-                    </p>
                     <div className="bg-white rounded-lg shadow-md overflow-hidden overflow-x-auto border border-gray-200">
                         <table className="min-w-full text-sm text-left">
                             <thead className="text-xs text-white uppercase bg-[#0B2545]">
                                 <tr>
                                     <th className="px-6 py-4 font-bold tracking-wider">Clase de Activo</th>
-                                    <th className="px-6 py-4 font-bold tracking-wider">Zona Geográfica</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Región</th>
                                     <th className="px-6 py-4 font-bold tracking-wider">Visión</th>
-                                    <th className="px-6 py-4 font-bold tracking-wider text-center">Convicción (1-5)</th>
-                                    <th className="px-6 py-4 font-bold tracking-wider">Rationale (Estrategia)</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider text-center">Convicción</th>
+                                    <th className="px-6 py-4 font-bold tracking-wider">Estrategia</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 text-gray-700">
@@ -222,11 +205,11 @@ export default function Dashboard() {
                                                  item.conviction >= 4 ? 'bg-[#10B981]' : 
                                                  item.conviction <= 2 ? 'bg-red-500' : 'bg-[#D4AF37]'
                                             }`}>
-                                                {item.conviction}
+                                                {item.conviction}/5
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-xs leading-relaxed max-w-xs text-gray-500">
-                                            {item.rationale || "Análisis fundamental favorable basado en proyecciones actuales."}
+                                            {item.rationale || "Análisis fundamental favorable."}
                                         </td>
                                     </tr>
                                 ))}
@@ -239,7 +222,7 @@ export default function Dashboard() {
             {/* SECCIÓN 4: DRIVERS (FACTORES CLAVE) */}
             <section className="md:col-span-12 mt-4 mb-8">
                 <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
-                    4. Drivers Principales (Factores de Riesgo)
+                    4. Drivers Principales de Mercado
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                      {reportData.keyDrivers?.map((driver: any, i: number) => (
@@ -262,9 +245,7 @@ export default function Dashboard() {
         <div className="max-w-4xl mx-auto">
             <p className="mb-4 text-gray-500">© 2025 Global Asset Management.</p>
             <p className="leading-relaxed">
-                RENUNCIA DE RESPONSABILIDAD: Este documento es estrictamente confidencial y para uso exclusivo educativo. 
-                No constituye una oferta de venta ni una solicitud de oferta de compra de valores. 
-                Las rentabilidades pasadas no garantizan resultados futuros.
+                RENUNCIA: Este documento es estrictamente confidencial y para fines educativos. 
             </p>
         </div>
       </footer>
