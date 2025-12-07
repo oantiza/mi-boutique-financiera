@@ -10,8 +10,8 @@ const firebaseConfig = {
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebasestorage.app",
-  messagingSenderId: "SENDER_ID", // Opcional para lectura
-  appId: "APP_ID" // Opcional para lectura
+  messagingSenderId: "SENDER_ID", // Opcional
+  appId: "APP_ID" // Opcional
 };
 
 // Singleton para evitar reinicializaciones en React
@@ -49,7 +49,8 @@ export default function Dashboard() {
           // Tomamos el primer documento encontrado
           setReportData(querySnapshot.docs[0].data());
         } else {
-          // No hay datos, el estado se queda null
+          // No hay datos
+          setReportData(null);
         }
       } catch (err: any) {
         console.error("Error fetching data:", err);
@@ -103,19 +104,17 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-slate-800">
       
-      {/* --- HEADER CORREGIDO --- */}
+      {/* --- HEADER --- */}
       <header className="bg-slate-900 text-white py-8 px-6 shadow-lg border-b-4 border-yellow-500">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-4xl font-serif font-bold tracking-tight">Global Investment Outlook</h1>
-          
-          {/* Texto corregido: Sin "Oficina del CIO" y usando el texto solicitado */}
           <p className="text-yellow-500 font-bold tracking-widest text-sm mt-2 uppercase">
              {activeTab === 'monthly' ? 'ESTRATEGIA MENSUAL' : 'TÁCTICO SEMANAL'}
           </p>
         </div>
       </header>
 
-      {/* --- CONTROLES Y PESTAÑAS --- */}
+      {/* --- MAIN CONTENT --- */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
           
@@ -163,3 +162,92 @@ export default function Dashboard() {
         {loading && (
             <div className="p-12 text-center text-gray-500 animate-pulse">
                 Cargando inteligencia de mercado...
+            </div>
+        )}
+
+        {error && (
+            <div className="p-6 bg-red-50 text-red-700 rounded-lg border border-red-200">
+                {error}
+            </div>
+        )}
+
+        {!loading && !error && !reportData && (
+            <div className="p-12 text-center bg-white rounded-lg shadow border border-gray-200">
+                <div className="mx-auto w-12 h-12 text-yellow-500 mb-4">⚠️</div>
+                <h3 className="text-lg font-medium text-gray-900">Sin Informes Disponibles</h3>
+                <p className="text-gray-500 mt-2">No se ha encontrado un informe {activeTab} reciente en la base de datos.</p>
+                <p className="text-xs text-gray-400 mt-4">Verifica que el Cron Job se haya ejecutado.</p>
+            </div>
+        )}
+
+        {/* --- CONTENIDO DEL INFORME --- */}
+        {!loading && reportData && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            
+            {/* 1. Resumen Ejecutivo */}
+            <section className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+              <h2 className="text-xl font-serif font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-1 h-6 bg-yellow-500 rounded-full"></span>
+                Resumen Ejecutivo
+              </h2>
+              <div className="prose prose-slate max-w-none text-gray-700 leading-relaxed">
+                <p>{reportData.executive_summary}</p>
+              </div>
+            </section>
+
+            {/* 2. Grid de Métricas (Drivers & Sentiment) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Sentimiento */}
+                <div className="bg-slate-800 text-white p-6 rounded-lg shadow">
+                    <h3 className="text-sm uppercase tracking-wider text-gray-400 mb-2">Sentimiento de Mercado</h3>
+                    <p className="text-3xl font-bold text-yellow-400">{reportData.marketSentiment || "Neutral"}</p>
+                </div>
+
+                {/* Drivers (Lista) */}
+                <div className="md:col-span-2 bg-white p-6 rounded-lg shadow border border-gray-100">
+                    <h3 className="text-sm uppercase tracking-wider text-gray-500 mb-4">Drivers Principales</h3>
+                    <ul className="space-y-3">
+                        {reportData.keyDrivers?.map((driver: any, i: number) => (
+                            <li key={i} className="flex items-start gap-3">
+                                <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-blue-100 text-blue-600 text-xs font-bold">
+                                    {i + 1}
+                                </span>
+                                <div>
+                                    <span className="font-semibold text-gray-900 block">{driver.title}</span>
+                                    <span className="text-sm text-gray-600">{driver.impact}</span>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            </div>
+
+            {/* 3. Cartera Modelo (Solo si es Monthly) */}
+            {activeTab === 'monthly' && reportData.model_portfolio && (
+                <section>
+                    <h2 className="text-xl font-serif font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span className="w-1 h-6 bg-yellow-500 rounded-full"></span>
+                        Matriz de Asignación de Activos
+                    </h2>
+                    {renderPortfolioTable()}
+                </section>
+            )}
+
+             {/* 4. Tesis (Si existe) */}
+             {reportData.thesis && (
+                 <section className="bg-blue-50 p-6 rounded-lg border border-blue-100">
+                     <h3 className="text-lg font-bold text-blue-900 mb-2">Tesis Central</h3>
+                     <p className="text-blue-800">{reportData.thesis.content}</p>
+                 </section>
+             )}
+
+            <div className="text-center text-xs text-gray-400 mt-12 pb-8">
+              <p>© {new Date().getFullYear()} Global Asset Management. Generado por AI (Gemini 2.5).</p>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
