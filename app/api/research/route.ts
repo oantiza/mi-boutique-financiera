@@ -3,56 +3,21 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// --- 1. CONFIGURACIÓN DE FIREBASE (SERVER-SIDE) ---
+// --- 1. CONFIGURACIÓN FIREBASE ---
 function getDB() {
-  if (getApps().length > 0) {
-    return getFirestore(getApp());
-  }
+  if (getApps().length > 0) return getFirestore(getApp());
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
   initializeApp({ credential: cert(serviceAccount) });
   return getFirestore();
 }
 
-// --- 2. CONFIGURACIÓN DE GEMINI ---
+// --- 2. CONFIGURACIÓN GEMINI ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// --- 3. PROMPTS DEL SISTEMA ---
-const SYSTEM_PROMPT_WEEKLY = `
-Eres el Chief Investment Officer (CIO). Tu tarea es generar un informe "Táctico Semanal".
-IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
-NO escribas introducciones. Empieza directamente con { y termina con }.
+// --- 3. PROMPTS ---
+const SYSTEM_PROMPT_WEEKLY = `Genera un JSON válido para reporte semanal. {"executive_summary": "...", "marketSentiment": "...", "keyDrivers": [], "thesis": {}}`;
+const SYSTEM_PROMPT_MONTHLY = `Genera un JSON válido para reporte mensual. {"executive_summary": "...", "marketSentiment": "...", "model_portfolio": [], "keyDrivers": []}`;
 
-Estructura requerida:
-{
-  "executive_summary": "Resumen del entorno macro...",
-  "marketSentiment": "Bullish / Neutral / Bearish",
-  "keyDrivers": [
-    {"title": "Driver 1", "impact": "Impacto..."}
-  ],
-  "thesis": { "content": "Tesis de inversión..." }
-}
-`;
-
-const SYSTEM_PROMPT_MONTHLY = `
-Eres el CIO. Genera la "Estrategia Mensual de Asignación de Activos".
-IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
-NO escribas introducciones. Empieza directamente con { y termina con }.
-
-Estructura requerida:
-{
-  "executive_summary": "Visión mensual...",
-  "marketSentiment": "Cautiously Optimistic / Neutral / Defensive",
-  "model_portfolio": [
-    { "asset_class": "Renta Variable", "region": "EE.UU.", "weight": 25, "view": "Sobreponderar", "conviction": 4 },
-    { "asset_class": "Renta Fija", "region": "Bonos Gob.", "weight": 30, "view": "Neutral", "conviction": 3 }
-  ],
-  "keyDrivers": [
-     {"title": "Inflación", "impact": "Análisis..."}
-  ]
-}
-`;
-
-// --- 4. MANEJADOR GET ---
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -60,10 +25,14 @@ export async function GET(request: Request) {
     const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
-    // ✅ CORRECCIÓN FINAL: Usamos la versión estable actual (Dic 2025)
-    const modelName = "gemini-2.5-flash"; 
+    // --- CAMBIO CLAVE: MODELO ESTÁNDAR ---
+    // Usamos 'gemini-1.5-flash-latest' que nunca falla por versión.
+    const modelName = "gemini-1.5-flash-latest"; 
 
-    console.log(`🚀 Iniciando Deep Research (${typeParam.toUpperCase()}) con ${modelName}...`);
+    // --- LOG DE DEPURACIÓN (Busca esto en Vercel) ---
+    console.log(`\n\n📢 --- INICIO DE EJECUCIÓN NUEVA ---`);
+    console.log(`📢 INTENTANDO USAR MODELO: ${modelName}`);
+    console.log(`📢 TIPO: ${typeParam}\n\n`);
 
     const model = genAI.getGenerativeModel({ 
         model: modelName,
@@ -71,30 +40,19 @@ export async function GET(request: Request) {
     });
 
     const result = await model.generateContent(
-        `Genera el informe con fecha de corte: ${new Date().toLocaleDateString()}. Sé analítico y profesional.`
+        `Genera el informe con fecha: ${new Date().toLocaleDateString()}. JSON puro.`
     );
     
     const responseText = result.response.text();
 
-    // --- 5. EXTRACCIÓN ROBUSTA DE JSON ---
+    // Limpieza JSON
     const firstBrace = responseText.indexOf('{');
     const lastBrace = responseText.lastIndexOf('}');
-
-    if (firstBrace === -1 || lastBrace === -1) {
-        throw new Error("La IA no devolvió un JSON válido (faltan llaves {}).");
-    }
-
-    const jsonString = responseText.substring(firstBrace, lastBrace + 1);
+    if (firstBrace === -1) throw new Error("La IA no devolvió JSON.");
     
-    let aiData;
-    try {
-        aiData = JSON.parse(jsonString);
-    } catch (e) {
-        console.error("❌ Fallo al parsear JSON extraído:", jsonString);
-        throw new Error("Sintaxis JSON inválida recibida de la IA.");
-    }
+    const aiData = JSON.parse(responseText.substring(firstBrace, lastBrace + 1));
 
-    // --- 6. GUARDAR EN FIRESTORE ---
+    // Guardar en DB
     const db = getDB();
     await db.collection('analysis_results').add({
         ...aiData,
@@ -103,24 +61,18 @@ export async function GET(request: Request) {
         date: new Date().toISOString().split('T')[0]
     });
 
-    console.log(`✅ Informe ${typeParam} guardado con éxito.`);
+    console.log("✅ ÉXITO: Informe guardado.");
 
-    return NextResponse.json({
-      success: true,
-      mode: typeParam,
-      message: "Informe generado correctamente."
-    });
+    return NextResponse.json({ success: true, mode: typeParam, message: "OK" });
 
   } catch (error: any) {
-    console.error("❌ Error en Deep Research:", error);
+    console.error("❌ ERROR FATAL:", error);
     return NextResponse.json({ 
         success: false, 
         error: error.message,
-        details: "Asegúrate de que Vercel ha desplegado la última versión con 'gemini-2.5-flash'."
+        details: "Revisa los logs de Vercel para ver el mensaje con 📢"
     }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
-    return NextResponse.json({ message: "Endpoint POST listo." });
-}
+export async function POST(request: Request) { return NextResponse.json({ ok: true }); }
