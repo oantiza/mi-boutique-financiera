@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         doc.fontSize(24).font('Helvetica-Bold').fillColor('#0F172A').text('Global Investment Outlook', { align: 'center' });
         doc.moveDown(0.5);
         
-        // Subtítulo (Corrección solicitada aplicada al PDF también)
+        // Subtítulo
         doc.fontSize(14).font('Helvetica').fillColor('#EAB308').text(reportTitle, { align: 'center', characterSpacing: 2 });
         doc.moveDown(0.5);
         
@@ -86,7 +86,6 @@ export async function GET(request: Request) {
 
         // 4. Matriz de Asignación (Solo Monthly)
         if (type === 'monthly' && data.model_portfolio && Array.isArray(data.model_portfolio)) {
-            // Check de espacio para salto de página
             if (doc.y > 500) doc.addPage();
 
             doc.fontSize(16).font('Helvetica-Bold').text('Matriz de Asignación de Activos');
@@ -153,7 +152,8 @@ export async function GET(request: Request) {
     });
 
     // --- 4. RESPUESTA HTTP ---
-    return new NextResponse(pdfBuffer, {
+    // FIX: Añadido "as any" para evitar error de tipado estricto con Buffers
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
