@@ -1,4 +1,4 @@
-// --- VERSION: GEMINI 2.5 FLASH (FORZADA) ---
+// --- VERSION FINAL: GEMINI 2.5 FLASH (VERIFICADO) ---
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
@@ -33,13 +33,11 @@ export async function GET(request: Request) {
     const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
-    // --- AQUÍ ESTÁ EL MODELO QUE TÚ QUIERES ---
+    // --- NOMBRE EXACTO CONFIRMADO POR TU LISTA ---
     const modelName = "gemini-2.5-flash"; 
 
-    // --- EL CHIVATO (SI NO VES ESTO EN LOS LOGS, VERCEL NO ACTUALIZÓ) ---
-    console.log(`\n\n🚨🚨🚨 INTENTANDO EJECUTAR GEMINI 2.5 🚨🚨🚨`);
-    console.log(`📢 Modelo solicitado: ${modelName}`);
-    console.log(`📢 Fecha ejecución: ${new Date().toISOString()}\n\n`);
+    console.log(`\n📢 --- INICIO DEEP RESEARCH (VERIFICADO) ---`);
+    console.log(`📢 MODELO SOLICITADO: ${modelName}`);
 
     const model = genAI.getGenerativeModel({ 
         model: modelName,
@@ -68,13 +66,12 @@ export async function GET(request: Request) {
         date: new Date().toISOString().split('T')[0]
     });
 
-    console.log(`✅ GUARDADO EXITO CON GEMINI 2.5: ${dbTag}`);
+    console.log(`✅ GUARDADO EXITO: ${dbTag}`);
 
     return NextResponse.json({ success: true, mode: typeParam });
 
   } catch (error: any) {
     console.error("❌ ERROR:", error);
-    // Si falla, el log nos dirá EXACTAMENTE qué modelo intentó buscar
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
