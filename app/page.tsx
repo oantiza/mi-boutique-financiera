@@ -1,234 +1,339 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Playfair_Display, Roboto } from 'next/font/google';
 import { db } from "../lib/firebase"; 
-import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-// Iconos para la sección Deep Research
-import { Activity, BarChart2, Layers, PieChart as PieIcon, Zap, BookOpen } from 'lucide-react';
+import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { 
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ComposedChart, Line, ScatterChart, Scatter, ZAxis
+} from 'recharts';
+import { Activity, ShieldAlert, TrendingUp, Calendar, Layers, Anchor, Globe } from 'lucide-react';
+import clsx from 'clsx';
 
+// --- FUENTES ---
 const playfair = Playfair_Display({ subsets: ['latin'], weight: ['400', '700'] });
 const roboto = Roboto({ subsets: ['latin'], weight: ['300', '400', '500', '700'] });
 
-const COLORS = ['#0B2545', '#10B981', '#D4AF37', '#EF4444', '#8B5CF6', '#F59E0B'];
+// --- COLORES CORPORATIVOS ---
+const THEME = {
+  navy: '#0B2545',
+  gold: '#D4AF37',
+  green: '#10B981',
+  red: '#EF4444',
+  grey: '#9CA3AF',
+  bg: '#F3F4F6'
+};
+
+const CHART_COLORS = [THEME.navy, THEME.gold, THEME.green, THEME.red, '#8B5CF6'];
 
 export default function Home() {
-  const [inputText, setInputText] = useState("");
+  const [viewMode, setViewMode] = useState<'weekly' | 'monthly'>('monthly');
   const [loading, setLoading] = useState(true); 
-  const [result, setResult] = useState<any>(null);
+  const [data, setData] = useState<any>(null);
 
-  // 1. AUTO-CARGA
-  useEffect(() => {
-    const fetchLastReport = async () => {
-      try {
-        const q = query(
-          collection(db, "analysis_results"),
-          orderBy("createdAt", "desc"),
-          limit(1)
-        );
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-          setResult(querySnapshot.docs[0].data());
-        }
-      } catch (error) {
-        console.error("Error cargando informe:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLastReport();
-  }, []);
-
-  // Manejo manual
-  const handleAnalyze = async () => {
-    if (!inputText.trim()) return alert("Por favor pega un informe.");
+  // --- CARGA DE DATOS DESDE FIREBASE ---
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/analizar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: inputText }),
-      });
-      const data = await response.json();
-      if (response.ok) setResult(data.data);
+      // Determinar qué etiqueta buscar según el modo
+      const targetType = viewMode === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
+      
+      const q = query(
+        collection(db, "analysis_results"),
+        where("type", "==", targetType),
+        orderBy("createdAt", "desc"),
+        limit(1)
+      );
+
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        setData(snapshot.docs[0].data());
+      } else {
+        setData(null);
+      }
     } catch (error) {
-      alert("Error de conexión.");
+      console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [viewMode]);
 
-  const chartData = result?.allocation_matrix?.map((item: any) => ({
-    name: item.asset || item.region,
-    value: item.weight || item.conviction * 10 || 10 
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // --- PREPARACIÓN DE DATOS PARA GRÁFICOS ---
+  
+  // Datos para Pie Chart (Asignación)
+  const allocationData = data?.model_portfolio?.map((item: any) => ({
+    name: item.asset_class || item.region,
+    value: item.weight || 0
   })) || [];
 
-  const getViewStyle = (view: string) => {
-    const v = view?.toLowerCase() || "";
-    if (v.includes("sobre") || v.includes("over") || v.includes("bull")) return "text-[#10B981] font-bold"; 
-    if (v.includes("infra") || v.includes("under") || v.includes("bear")) return "text-red-600 font-bold";   
-    return "text-[#D4AF37] font-bold"; 
-  };
-
-  // Configuración para las tarjetas de Deep Research
-  const researchCards = [
-    { key: 'rates', title: 'Tasas & Curvas', icon: Activity, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-700' },
-    { key: 'valuation', title: 'Valoración Equity', icon: BarChart2, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-600' },
-    { key: 'credit', title: 'Riesgo Crédito', icon: Layers, color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-600' },
-    { key: 'flows', title: 'Flujos & Sentimiento', icon: PieIcon, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-500' },
+  // Datos Simulados para Gráficos Macro (Si la IA no devuelve series temporales, usamos mocks visuales)
+  const macroData = [
+    { name: 'Q1', inflation: 3.2, rate: 5.25 },
+    { name: 'Q2', inflation: 2.9, rate: 5.25 },
+    { name: 'Q3', inflation: 2.6, rate: 5.00 },
+    { name: 'Q4 (Est)', inflation: 2.4, rate: 4.75 },
   ];
 
-  return (
-    <main className={`min-h-screen bg-[#F3F4F6] ${roboto.className} text-[#1F2937]`}>
-      
-      {/* HEADER */}
-      <header className="bg-[#0B2545] text-white py-8 px-4 shadow-xl border-b-8 border-[#D4AF37]">
-        <div className="max-w-7xl mx-auto">
-          <h1 className={`${playfair.className} text-3xl md:text-4xl font-bold tracking-tight`}>
-            Perspectiva Global de Inversión
+  // --- RENDERIZADO DE COMPONENTES ---
+
+  const renderHeader = () => (
+    <header className="bg-[#0B2545] text-white py-10 px-4 shadow-2xl border-b-4 border-[#D4AF37]">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
+        <div className="mb-6 md:mb-0 text-center md:text-left">
+          <h1 className={`${playfair.className} text-3xl md:text-5xl font-bold tracking-tight mb-2`}>
+            Global Investment Outlook
           </h1>
-          <p className="text-[#D4AF37] text-sm font-medium uppercase tracking-widest mt-1">
-            Oficina del CIO • {result ? new Date(result.createdAt?.seconds * 1000).toLocaleDateString() : "Cargando..."}
+          <p className="text-[#D4AF37] text-sm md:text-lg font-medium uppercase tracking-widest flex items-center gap-2 justify-center md:justify-start">
+            <ShieldAlert size={18} /> Oficina del CIO • {viewMode === 'monthly' ? 'Estrategia Trimestral' : 'Informe Táctico Semanal'}
           </p>
         </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto px-4 py-8">
         
-        {loading && (
-          <div className="text-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0B2545] mx-auto"></div>
-            <p className="mt-4 text-gray-500">Recuperando inteligencia de mercado...</p>
-          </div>
+        {/* Toggle Switch Estilo Institucional */}
+        <div className="bg-white/10 p-1 rounded-lg flex backdrop-blur-sm border border-white/20">
+          <button
+            onClick={() => setViewMode('weekly')}
+            className={clsx(
+              "px-6 py-2 rounded-md text-sm font-bold transition-all duration-300 flex items-center gap-2",
+              viewMode === 'weekly' ? "bg-[#D4AF37] text-[#0B2545] shadow-lg" : "text-gray-300 hover:text-white"
+            )}
+          >
+            <Activity size={16} /> Táctico (Semanal)
+          </button>
+          <button
+            onClick={() => setViewMode('monthly')}
+            className={clsx(
+              "px-6 py-2 rounded-md text-sm font-bold transition-all duration-300 flex items-center gap-2",
+              viewMode === 'monthly' ? "bg-[#D4AF37] text-[#0B2545] shadow-lg" : "text-gray-300 hover:text-white"
+            )}
+          >
+            <Calendar size={16} /> Estratégico (Mensual)
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+
+  const renderExecutiveSummary = () => (
+    <section className="bg-white rounded-lg shadow-lg p-8 mb-8 border-t-4 border-[#0B2545]">
+      <h2 className={`${playfair.className} text-3xl font-bold text-[#0B2545] mb-6 flex items-center gap-3`}>
+        <span className="w-2 h-8 bg-[#D4AF37] block rounded-sm"></span>
+        1. Resumen Ejecutivo (The Bottom Line)
+      </h2>
+      <div className="prose prose-lg text-gray-700 max-w-none leading-relaxed">
+        <p>{data?.executive_summary || "Esperando generación de informe..."}</p>
+      </div>
+
+      {/* Tarjetas de Métricas Clave (Diferentes para Semanal/Mensual) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+        {viewMode === 'monthly' ? (
+          <>
+            <MetricCard title="Postura Global" value="Neutral-Alcista" sub="Sobreponderar Calidad" color="navy" />
+            <MetricCard title="Riesgo Principal" value="Inflación Servicios" sub="Persistencia > 3%" color="gold" />
+            <MetricCard title="Oportunidad" value="Bonos Gvt 5Y" sub="Lock-in Yield Real" color="green" />
+          </>
+        ) : (
+          <>
+            <MetricCard title="Sentimiento" value={data?.flows_positioning?.key_metric || "Neutral"} sub="Fear & Greed Index" color="navy" />
+            <MetricCard title="US 10Y Yield" value={data?.rates?.key_metric || "--%"} sub="Tendencia Semanal" color="gold" />
+            <MetricCard title="Volatilidad" value="VIX: 14.5" sub="Rango Bajo" color="green" />
+          </>
         )}
+      </div>
+    </section>
+  );
 
-        {!result && !loading && (
-          <div className="bg-white p-8 rounded-lg shadow-md mb-12 border-t-4 border-[#0B2545]">
-            <h2 className={`${playfair.className} text-2xl font-bold text-[#0B2545] mb-4`}>Panel de Control</h2>
-            <textarea
-              className="w-full h-32 p-4 border border-gray-300 rounded bg-gray-50"
-              placeholder="Pega aquí un informe..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-            />
-            <button onClick={handleAnalyze} className="mt-4 bg-[#0B2545] text-white py-3 px-6 rounded font-bold w-full">
-              Analizar Manualmente
-            </button>
+  const renderChartsSection = () => (
+    <section className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+      {/* Chart 1: Macro Dynamics */}
+      <div className="bg-white p-6 rounded-lg shadow-lg border-t-2 border-gray-100">
+        <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Dinámica Macro: Tipos vs Inflación</h3>
+        <div className="h-72 w-full">
+          <ResponsiveContainer>
+            <ComposedChart data={macroData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="name" tick={{fontSize: 12}} />
+              <YAxis yAxisId="left" orientation="left" stroke={THEME.navy} />
+              <YAxis yAxisId="right" orientation="right" stroke={THEME.gold} />
+              <RechartsTooltip />
+              <Legend />
+              <Bar yAxisId="left" dataKey="rate" name="Tasa FED" fill={THEME.navy} barSize={20} />
+              <Line yAxisId="right" type="monotone" dataKey="inflation" name="IPC" stroke={THEME.gold} strokeWidth={3} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Chart 2: Asset Allocation (Solo mensual) o Flujos (Semanal) */}
+      <div className="bg-white p-6 rounded-lg shadow-lg border-t-2 border-gray-100">
+        <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>
+          {viewMode === 'monthly' ? 'Asignación de Activos Estratégica' : 'Deep Research: Focos de Atención'}
+        </h3>
+        
+        {viewMode === 'monthly' && allocationData.length > 0 ? (
+          <div className="h-72 w-full">
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={allocationData}
+                  cx="50%" cy="50%"
+                  innerRadius={60} outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {allocationData.map((entry: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip />
+                <Legend verticalAlign="middle" align="right" layout="vertical" />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
-        )}
-
-        {/* --- DASHBOARD --- */}
-        {result && (
-          <div className="space-y-8 animate-fade-in pb-12">
-            
-            {/* 1. RESUMEN EJECUTIVO */}
-            <section className="bg-white rounded-xl shadow-sm p-6 md:p-8 border-l-4 border-[#D4AF37]">
-              <h2 className={`${playfair.className} text-2xl font-bold text-[#0B2545] mb-4`}>The Bottom Line</h2>
-              <p className="text-lg text-gray-700 leading-relaxed mb-6">{result.executive_summary}</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {result.cards && Object.entries(result.cards).map(([key, value]: any, i: number) => {
-                    // Filtramos claves que son subtítulos para mostrarlos juntos si quieres, o simple
-                    if (key.includes('subtitle')) return null; 
-                    return (
-                    <div key={i} className="bg-slate-50 p-4 rounded border border-slate-200">
-                        <p className="text-xs font-bold text-gray-400 uppercase mb-1">{key.replace('_', ' ')}</p>
-                        <p className="font-bold text-[#0B2545] text-lg">{value}</p>
-                        <p className="text-xs text-gray-500 mt-1">{result.cards[key + '_subtitle']}</p>
-                    </div>
-                    )
-                })}
-              </div>
-            </section>
-
-            {/* 2. ASIGNACIÓN DE ACTIVOS (Gráfico y Tabla) */}
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="bg-white rounded-xl shadow-sm p-6 col-span-1 border-t-4 border-[#10B981]">
-                <h3 className="font-bold text-gray-700 mb-4 text-center">Asset Allocation</h3>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={chartData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                        {chartData.map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend verticalAlign="bottom" height={36}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm overflow-hidden col-span-1 md:col-span-2 border-t-4 border-[#10B981]">
-                 <table className="min-w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                    <tr>
-                      <th className="px-6 py-3">Activo</th>
-                      <th className="px-6 py-3">Región</th>
-                      <th className="px-6 py-3">Visión</th>
-                      <th className="px-6 py-3">Rationale</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {result.allocation_matrix?.map((row: any, i: number) => (
-                      <tr key={i} className="hover:bg-gray-50 transition">
-                        <td className="px-6 py-4 font-bold text-[#0B2545]">{row.asset}</td>
-                        <td className="px-6 py-4 text-gray-500">{row.region}</td>
-                        <td className={`px-6 py-4 ${getViewStyle(row.view)}`}>{row.view}</td>
-                        <td className="px-6 py-4 text-xs text-gray-500 max-w-xs">{row.rationale}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* 3. DEEP RESEARCH (Nueva Sección Visual) */}
-            <section className="mt-8">
-              <div className="flex items-center gap-3 mb-6 border-b border-gray-200 pb-4">
-                <div className="p-2 bg-[#0B2545] rounded text-white"><BookOpen size={20} /></div>
-                <h2 className={`${playfair.className} text-2xl font-bold text-[#0B2545]`}>Deep Research</h2>
-              </div>
-
-              {/* Grid de Tarjetas de Análisis */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                {researchCards.map((card) => {
-                    const content = result.deep_research?.[card.key] || "Sin datos disponibles.";
-                    const Icon = card.icon;
-                    return (
-                        <div key={card.key} className="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition overflow-hidden">
-                            <div className={`px-5 py-3 border-l-4 ${card.border} ${card.bg} flex items-center gap-3`}>
-                                <Icon className={`w-5 h-5 ${card.color}`} />
-                                <h3 className="font-bold text-slate-800">{card.title}</h3>
-                            </div>
-                            <div className="p-5">
-                                <p className="text-slate-600 text-sm leading-relaxed">{content}</p>
-                            </div>
-                        </div>
-                    );
-                })}
-              </div>
-
-              {/* Tesis de Inversión (Destacada) */}
-              {result.thesis && (
-                <div className="bg-gradient-to-r from-[#0B2545] to-[#1E3A8A] rounded-xl p-8 text-white shadow-lg relative overflow-hidden">
-                    <div className="relative z-10">
-                        <h3 className="text-sm font-bold text-[#D4AF37] mb-3 flex items-center gap-2 uppercase tracking-widest">
-                            <Zap size={16} className="text-[#D4AF37]" /> Tesis de Inversión Central
-                        </h3>
-                        <p className={`${playfair.className} text-xl md:text-2xl leading-relaxed italic`}>
-                            "{result.thesis.content || result.thesis}"
-                        </p>
-                    </div>
-                </div>
-              )}
-            </section>
-
+        ) : (
+          <div className="h-72 flex flex-col justify-center gap-4">
+             {/* Fallback visual para modo semanal o sin datos */}
+             <DeepResearchCard icon={Activity} title="Tasas" text={data?.rates?.content || "Análisis no disponible"} />
+             <DeepResearchCard icon={Globe} title="Geopolítica" text={data?.thesis?.content?.slice(0, 100) + "..." || "..."} />
           </div>
         )}
       </div>
-    </main>
+    </section>
+  );
+
+  const renderMatrix = () => {
+    if (viewMode !== 'monthly' || !data?.model_portfolio) return null;
+
+    return (
+      <section className="bg-white rounded-lg shadow-lg overflow-hidden mb-12">
+        <div className="bg-[#0B2545] px-8 py-4 border-b border-[#D4AF37]">
+          <h2 className={`${playfair.className} text-2xl text-white font-bold`}>Matriz de Asignación Táctica</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm text-left text-gray-600">
+            <thead className="bg-gray-50 text-xs text-[#0B2545] uppercase font-bold tracking-wider">
+              <tr>
+                <th className="px-6 py-4">Clase de Activo</th>
+                <th className="px-6 py-4">Región / Tipo</th>
+                <th className="px-6 py-4 text-center">Peso %</th>
+                <th className="px-6 py-4">Visión</th>
+                <th className="px-6 py-4">Racional</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {data.model_portfolio.map((row: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-bold text-gray-900">{row.asset_class}</td>
+                  <td className="px-6 py-4">{row.region}</td>
+                  <td className="px-6 py-4 text-center font-mono text-[#0B2545]">{row.weight}%</td>
+                  <td className="px-6 py-4">
+                    <span className={clsx(
+                      "px-3 py-1 rounded-full text-xs font-bold",
+                      row.view?.includes('Sobre') ? "bg-green-100 text-green-800" :
+                      row.view?.includes('Infra') ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-800"
+                    )}>
+                      {row.view}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-xs italic max-w-xs truncate">{row.rationale}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  };
+
+  // --- UI PRINCIPAL ---
+  return (
+    <div className={`min-h-screen bg-[#F3F4F6] ${roboto.className} text-[#1F2937]`}>
+      
+      {renderHeader()}
+
+      <main className="max-w-7xl mx-auto px-4 py-8 -mt-8 relative z-10">
+        
+        {loading ? (
+          <div className="bg-white p-12 rounded-lg shadow-lg text-center animate-pulse">
+            <div className="w-16 h-16 border-4 border-[#0B2545] border-t-[#D4AF37] rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-[#0B2545] font-medium">Recuperando inteligencia de mercado...</p>
+          </div>
+        ) : !data ? (
+          <div className="bg-white p-12 rounded-lg shadow-lg text-center">
+            <ShieldAlert className="w-12 h-12 text-[#D4AF37] mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-[#0B2545]">Sin Informes Disponibles</h3>
+            <p className="text-gray-500 mt-2">No se ha encontrado un informe {viewMode} reciente en la base de datos.</p>
+            <p className="text-xs text-gray-400 mt-4">Verifica que el Cron Job se haya ejecutado.</p>
+          </div>
+        ) : (
+          <div className="space-y-8 animate-fade-in-up">
+            {renderExecutiveSummary()}
+            {renderChartsSection()}
+            {renderMatrix()}
+            
+            {/* Tesis de Inversión Central */}
+            {data.thesis && (
+              <div className="bg-[#0B2545] text-white p-8 rounded-lg shadow-lg border-l-4 border-[#D4AF37] flex gap-4 items-start">
+                <Anchor className="w-10 h-10 text-[#D4AF37] flex-shrink-0 mt-1" />
+                <div>
+                  <h3 className="text-[#D4AF37] font-bold uppercase tracking-widest text-sm mb-2">Tesis Central de Inversión</h3>
+                  <p className={`${playfair.className} text-xl md:text-2xl italic leading-relaxed`}>
+                    "{typeof data.thesis === 'string' ? data.thesis : data.thesis.content}"
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Footer Institucional */}
+      <footer className="bg-[#1F2937] text-gray-400 py-12 px-4 text-center text-xs mt-12 border-t border-gray-700">
+        <div className="max-w-4xl mx-auto">
+          <p className="mb-4 font-bold text-gray-300">© 2025 Global Asset Management - Oficina del CIO.</p>
+          <p className="leading-relaxed">
+            RENUNCIA DE RESPONSABILIDAD: Este documento es estrictamente confidencial y para uso exclusivo del comité de dirección. 
+            No constituye una oferta de venta ni una solicitud de oferta de compra de valores. 
+            Las rentabilidades pasadas no garantizan resultados futuros.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// --- SUB-COMPONENTES SIMPLES ---
+
+function MetricCard({ title, value, sub, color }: { title: string, value: string, sub: string, color: string }) {
+  const colors: any = {
+    navy: 'border-[#0B2545] text-[#0B2545]',
+    gold: 'border-[#D4AF37] text-[#0B2545]',
+    green: 'border-[#10B981] text-[#0B2545]',
+  };
+  
+  return (
+    <div className={`bg-[#F8FAFC] border-t-4 ${colors[color]} p-6 rounded shadow-sm text-center hover:shadow-md transition-shadow`}>
+      <h3 className="text-gray-500 uppercase text-xs font-bold tracking-wider mb-2">{title}</h3>
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="text-sm text-gray-600 mt-1 italic">{sub}</p>
+    </div>
+  );
+}
+
+function DeepResearchCard({ icon: Icon, title, text }: any) {
+  return (
+    <div className="flex items-start gap-4 p-4 bg-gray-50 rounded border border-gray-100">
+      <div className="p-2 bg-white rounded shadow-sm text-[#0B2545]">
+        <Icon size={20} />
+      </div>
+      <div>
+        <h4 className="font-bold text-[#0B2545] text-sm">{title}</h4>
+        <p className="text-xs text-gray-600 line-clamp-2">{text}</p>
+      </div>
+    </div>
   );
 }
