@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+// Usamos la librería clásica pero forzamos los tipos nuevos
 import { GoogleGenerativeAI } from '@google/generative-ai'; 
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
 // --- 1. CONFIGURACIÓN ---
@@ -8,9 +9,6 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Inicialización de Firebase (Singleton)
 if (!getApps().length) {
-  // Nota: En producción Vercel usa las variables de entorno automáticamente si usas firebase-admin
-  // Si usas el SDK cliente en el backend, asegúrate de la config. 
-  // Para este ejemplo asumimos que la conexión a DB ya está lista o usamos la default.
   initializeApp(); 
 }
 const db = getFirestore();
@@ -41,20 +39,21 @@ Salida esperada: JSON estructurado con la matriz y la tesis central.
 `;
 
 // --- 3. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
-// Este se activa los sábados o el día 1 de mes automáticamente.
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'weekly'; 
 
-    console.log(`🚀 Iniciando Deep Research. Modo: ${type.toUpperCase()}`);
+    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()}) con Gemini 2.5 Flash...`);
 
-    // Configurar modelo con herramientas de búsqueda
+    // CAMBIO CRÍTICO: Modelo 2.5 Flash (Estándar 2025)
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-pro", 
+      model: "gemini-2.5-flash", 
       tools: [
-        { googleSearch: {} } // Grounding activo
+        // FIX DE TYPESCRIPT: 'as any' es obligatorio aquí porque la librería @google/generative-ai
+        // tiene definiciones de tipos antiguas que no incluyen 'googleSearch' todavía.
+        { googleSearch: {} } as any 
       ] 
     });
 
@@ -84,21 +83,25 @@ export async function GET(request: Request) {
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let text = response.text();
+    
+    // Limpieza de Markdown
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
     const reportData = JSON.parse(text);
 
     // Guardar en Firestore
-    const collectionName = 'analysis_results'; // Usamos una colección unificada con 'type'
+    const collectionName = 'analysis_results';
     const dbTag = type === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
 
     await db.collection(collectionName).add({
       ...reportData,
-      type: dbTag, // Etiqueta para que el Frontend sepa qué mostrar
+      type: dbTag,
       createdAt: new Date().toISOString(),
-      status: 'completed'
+      status: 'completed',
+      model: "gemini-2.5-flash"
     });
 
-    return NextResponse.json({ success: true, mode: type, message: "Informe generado." });
+    return NextResponse.json({ success: true, mode: type, message: "Informe generado con Gemini 2.5" });
 
   } catch (error: any) {
     console.error("❌ Error en Deep Research:", error);
@@ -107,35 +110,29 @@ export async function GET(request: Request) {
 }
 
 // --- 4. HANDLER POST (INGESTA DE EMAILS) ---
-// Este recibe los datos desde Google Apps Script
 
 export async function POST(request: Request) {
   try {
-    // 1. Leer el cuerpo del envío (el JSON que manda Google Apps Script)
     const body = await request.json();
     
-    // Validación básica
     if (!body || !body.texto) {
         return NextResponse.json({ success: false, message: "Payload vacío" }, { status: 400 });
     }
 
     console.log(`📧 Nuevo correo recibido: ${body.asunto}`);
 
-    // 2. Guardar en una colección de "Entradas" (Raw Data)
-    // Esto servirá de contexto para futuros análisis de la IA
     await db.collection('raw_email_inputs').add({
       subject: body.asunto,
       content: body.texto,
       date: body.fecha,
       source: 'gmail_ingestion',
-      processed: false, // Flag para saber si la IA ya lo leyó
+      processed: false,
       createdAt: new Date().toISOString()
     });
 
-    // 3. Responder al script de Google con éxito (200 OK)
     return NextResponse.json({ 
       success: true, 
-      message: "Correo archivado correctamente en base de datos." 
+      message: "Correo archivado correctamente." 
     });
 
   } catch (error: any) {
