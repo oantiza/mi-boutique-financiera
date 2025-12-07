@@ -20,9 +20,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const SYSTEM_PROMPT_WEEKLY = `
 Eres el Chief Investment Officer (CIO). Tu tarea es generar un informe "Táctico Semanal".
 IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
-NO escribas introducciones como "Aquí está el informe".
-NO uses bloques de código markdown (\`\`\`json).
-Empieza directamente con { y termina con }.
+NO escribas introducciones. Empieza directamente con { y termina con }.
 
 Estructura requerida:
 {
@@ -38,8 +36,7 @@ Estructura requerida:
 const SYSTEM_PROMPT_MONTHLY = `
 Eres el CIO. Genera la "Estrategia Mensual de Asignación de Activos".
 IMPORTANTE: Tu respuesta debe ser UNICAMENTE un objeto JSON válido.
-NO escribas introducciones. NO uses markdown.
-Empieza directamente con { y termina con }.
+NO escribas introducciones. Empieza directamente con { y termina con }.
 
 Estructura requerida:
 {
@@ -60,12 +57,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const typeParam = searchParams.get('type') || 'monthly';
-
     const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
-    // --- ACTUALIZACIÓN: GEMINI 2.5 FLASH ---
-    // Si tu proveedor requiere una versión específica como "gemini-2.5-flash-001", cámbialo aquí.
+    // ✅ CORRECCIÓN FINAL: Usamos la versión estable actual (Dic 2025)
     const modelName = "gemini-2.5-flash"; 
 
     console.log(`🚀 Iniciando Deep Research (${typeParam.toUpperCase()}) con ${modelName}...`);
@@ -82,7 +77,6 @@ export async function GET(request: Request) {
     const responseText = result.response.text();
 
     // --- 5. EXTRACCIÓN ROBUSTA DE JSON ---
-    // Buscamos las llaves para limpiar texto extra
     const firstBrace = responseText.indexOf('{');
     const lastBrace = responseText.lastIndexOf('}');
 
@@ -104,7 +98,7 @@ export async function GET(request: Request) {
     const db = getDB();
     await db.collection('analysis_results').add({
         ...aiData,
-        type: dbTag, // Etiqueta corregida
+        type: dbTag, 
         createdAt: new Date().toISOString(),
         date: new Date().toISOString().split('T')[0]
     });
@@ -122,7 +116,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
         success: false, 
         error: error.message,
-        details: `Fallo intentando usar el modelo '${"gemini-2.5-flash"}'. Verifica el nombre exacto en Google AI Studio.`
+        details: "Asegúrate de que Vercel ha desplegado la última versión con 'gemini-2.5-flash'."
     }, { status: 500 });
   }
 }
