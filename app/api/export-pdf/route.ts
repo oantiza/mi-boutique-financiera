@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import PDFDocument from 'pdfkit';
 
-// --- 1. CONFIGURACIÓN FIREBASE ---
 function getDB() {
   if (getApps().length > 0) return getFirestore(getApp());
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
@@ -11,69 +10,54 @@ function getDB() {
   return getFirestore();
 }
 
-// --- 2. CONFIGURACIÓN GEMINI ---
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-// --- 3. PROMPTS ---
-const SYSTEM_PROMPT_WEEKLY = `Genera un JSON válido para reporte semanal. {"executive_summary": "...", "marketSentiment": "...", "keyDrivers": [], "thesis": {}}`;
-const SYSTEM_PROMPT_MONTHLY = `Genera un JSON válido para reporte mensual. {"executive_summary": "...", "marketSentiment": "...", "model_portfolio": [], "keyDrivers": []}`;
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const typeParam = searchParams.get('type') || 'monthly';
-    const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
-    const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
-    
-    // --- CAMBIO CLAVE: MODELO ESTÁNDAR ---
-    // Usamos 'gemini-1.5-flash-latest' que es el alias estable actual.
-    const modelName = "gemini-1.5-flash-latest"; 
+    const type = searchParams.get('type') || 'monthly';
+    // Mapeo crítico para encontrar los datos
+    const dbTag = type === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
 
-    // --- LOG DE DEPURACIÓN (Busca esto en Vercel) ---
-    console.log(`\n\n📢 --- INICIO DE EJECUCIÓN DEPURADA ---`);
-    console.log(`📢 MODELO SELECCIONADO: ${modelName}`);
-    console.log(`📢 TIPO: ${typeParam}\n\n`);
-
-    const model = genAI.getGenerativeModel({ 
-        model: modelName,
-        systemInstruction: systemInstruction
-    });
-
-    const result = await model.generateContent(
-        `Genera el informe con fecha: ${new Date().toLocaleDateString()}. Responde SOLO con JSON.`
-    );
-    
-    const responseText = result.response.text();
-
-    // Limpieza JSON (Tu corrección de sintaxis)
-    const firstBrace = responseText.indexOf('{');
-    const lastBrace = responseText.lastIndexOf('}');
-    
-    if (firstBrace === -1) throw new Error("La IA no devolvió JSON válido.");
-    
-    const aiData = JSON.parse(responseText.substring(firstBrace, lastBrace + 1));
-
-    // Guardar en DB (Tu corrección de etiquetas)
     const db = getDB();
-    await db.collection('analysis_results').add({
-        ...aiData,
-        type: dbTag, 
-        createdAt: new Date().toISOString(),
-        date: new Date().toISOString().split('T')[0]
+    const snapshot = await db.collection('analysis_results')
+      .where('type', '==', dbTag)
+      .orderBy('createdAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return NextResponse.json({ error: "Informe no encontrado" }, { status: 404 });
+    }
+
+    const data = snapshot.docs[0].data();
+    const doc = new PDFDocument({ margin: 50 });
+    
+    // Convertir stream a buffer
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+        const buffers: any[] = [];
+        doc.on('data', buffers.push.bind(buffers));
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', reject);
+
+        doc.fontSize(20).text('Global Investment Outlook', { align: 'center' });
+        doc.fontSize(12).text(`Reporte: ${type.toUpperCase()}`, { align: 'center' });
+        doc.moveDown();
+        doc.fontSize(14).text('Resumen Ejecutivo');
+        doc.fontSize(10).text(data.executive_summary || "Sin datos");
+        
+        // ... (Aquí podrías añadir más detalles de la tabla si quisieras)
+
+        doc.end();
     });
 
-    console.log("✅ ÉXITO: Informe guardado.");
-
-    return NextResponse.json({ success: true, mode: typeParam, message: "OK" });
+    return new NextResponse(pdfBuffer as any, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="Informe_${type}.pdf"`,
+      },
+    });
 
   } catch (error: any) {
-    console.error("❌ ERROR FATAL:", error);
-    return NextResponse.json({ 
-        success: false, 
-        error: error.message,
-        details: "Si no ves el mensaje con 📢 en los logs, Vercel no ha actualizado el código."
-    }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-
-export async function POST(request: Request) { return NextResponse.json({ ok: true }); }
