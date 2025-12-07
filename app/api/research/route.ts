@@ -64,7 +64,8 @@ export async function GET(request: Request) {
     const dbTag = typeParam === 'monthly' ? 'MONTHLY_PORTFOLIO' : 'WEEKLY_MACRO';
     const systemInstruction = typeParam === 'monthly' ? SYSTEM_PROMPT_MONTHLY : SYSTEM_PROMPT_WEEKLY;
     
-    // --- ACTUALIZACIÓN A GEMINI 2.5 FLASH ---
+    // --- ACTUALIZACIÓN: GEMINI 2.5 FLASH ---
+    // Si tu proveedor requiere una versión específica como "gemini-2.5-flash-001", cámbialo aquí.
     const modelName = "gemini-2.5-flash"; 
 
     console.log(`🚀 Iniciando Deep Research (${typeParam.toUpperCase()}) con ${modelName}...`);
@@ -81,6 +82,7 @@ export async function GET(request: Request) {
     const responseText = result.response.text();
 
     // --- 5. EXTRACCIÓN ROBUSTA DE JSON ---
+    // Buscamos las llaves para limpiar texto extra
     const firstBrace = responseText.indexOf('{');
     const lastBrace = responseText.lastIndexOf('}');
 
@@ -102,7 +104,7 @@ export async function GET(request: Request) {
     const db = getDB();
     await db.collection('analysis_results').add({
         ...aiData,
-        type: dbTag, 
+        type: dbTag, // Etiqueta corregida
         createdAt: new Date().toISOString(),
         date: new Date().toISOString().split('T')[0]
     });
@@ -117,11 +119,10 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error("❌ Error en Deep Research:", error);
-    // Añadimos info extra al error para debuggear si el nombre del modelo falla
     return NextResponse.json({ 
         success: false, 
         error: error.message,
-        details: "Verifica si el nombre del modelo 'gemini-2.5-flash' es correcto en tu cuenta de Google AI."
+        details: `Fallo intentando usar el modelo '${"gemini-2.5-flash"}'. Verifica el nombre exacto en Google AI Studio.`
     }, { status: 500 });
   }
 }
