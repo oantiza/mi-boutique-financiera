@@ -1,50 +1,37 @@
 import { NextResponse } from 'next/server';
-// Usamos los imports específicos para evitar conflictos de tipos
 import { GoogleGenerativeAI } from '@google/generative-ai'; 
 import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// --- 1. FUNCIÓN HELPER DE CONEXIÓN (PATRÓN SINGLETON) ---
-// Esta función es la CLAVE. Solo conecta cuando se le llama, nunca antes.
+// --- 1. CONFIGURACIÓN IA ---
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+// --- FUNCIÓN HELPER DE CONEXIÓN (PATRÓN SINGLETON ROBUSTO) ---
 function getDB() {
-  // 1. Si ya estamos conectados, devolvemos la instancia existente
   if (getApps().length > 0) {
     return getFirestore(getApp());
   }
 
-  // 2. Si no, preparamos las credenciales
-  // (Esto evita errores si las variables no existen durante el build)
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  // Corrección crítica para saltos de línea en Vercel
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY 
-    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
-    : undefined;
+  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
-  // 3. Verificamos que tenemos todo lo necesario
-  if (!projectId || !clientEmail || !privateKey) {
-    // En tiempo de build, esto puede faltar, así que lanzamos error controlado
-    // para que no rompa la compilación estática si no se usa.
-    throw new Error("Faltan credenciales de Firebase (PROJECT_ID, CLIENT_EMAIL o PRIVATE_KEY).");
+  // CRÍTICO: Comprueba si existe la única variable necesaria
+  if (!serviceAccountString) {
+    throw new Error("Faltan credenciales de Firebase. La variable FIREBASE_SERVICE_ACCOUNT_JSON está vacía.");
   }
 
-  // 4. Inicializamos
+  // Parseamos todo el objeto JSON de credenciales de una vez
+  const serviceAccount = JSON.parse(serviceAccountString);
+
   initializeApp({
-    credential: cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
+    credential: cert(serviceAccount)
   });
 
   return getFirestore();
 }
 
-// --- 2. CONFIGURACIÓN IA ---
-// Inicializamos esto fuera, pero es seguro porque no requiere red inmediata
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// --- 2. DEFINICIÓN DE PROMPTS Y ROLES ---
+// (Contenido de ROLE_CIO, WEEKLY_TASK, MONTHLY_TASK omitido por brevedad, asumiendo que el usuario lo conserva)
 
-// --- 3. DEFINICIÓN DE PROMPTS ---
 const ROLE_CIO = `
 Actúa como el Chief Investment Officer (CIO) y Estratega Macro Global de un banco de inversión Tier-1.
 Tu tono es institucional, sofisticado y directo.
@@ -66,23 +53,20 @@ Genera el "Informe Estratégico de Asignación de Activos".
 Salida esperada: JSON estructurado con la matriz y la tesis central.
 `;
 
-// --- 4. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
+// --- 3. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
 
 export async function GET(request: Request) {
   try {
-    // ¡IMPORTANTE! Inicializamos la DB AQUÍ DENTRO, no fuera.
-    const db = getDB();
-
+    const db = getDB(); // Conexión garantizada o lanza error
+    
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'weekly'; 
 
-    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()})...`);
+    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()}) con Gemini 2.5 Flash...`);
 
-    // Usamos Gemini 2.5 Flash
     const model = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash", 
       tools: [
-        // Bypass de tipos para googleSearch
         { googleSearch: {} } as any 
       ] 
     });
@@ -94,7 +78,6 @@ export async function GET(request: Request) {
       ${type === 'monthly' ? MONTHLY_TASK : WEEKLY_TASK}
       
       FORMATO JSON OBLIGATORIO:
-      Devuelve SOLO un objeto JSON válido con esta estructura:
       {
         "reportType": "${type}",
         "date": "YYYY-MM-DD",
@@ -132,24 +115,23 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error("❌ Error en Deep Research:", error);
+    // Lanzamos el error original si no es de Firebase
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// --- 5. HANDLER POST (INGESTA DE EMAILS) ---
+// --- 4. HANDLER POST (INGESTA DE EMAILS) ---
+// (El cuerpo de la función POST también debe usar const db = getDB();)
 
 export async function POST(request: Request) {
   try {
-    // Inicializamos la DB AQUÍ DENTRO también
-    const db = getDB();
+    const db = getDB(); // Llama a la conexión garantizada
 
     const body = await request.json();
     
     if (!body || !body.texto) {
         return NextResponse.json({ success: false, message: "Payload vacío" }, { status: 400 });
     }
-
-    console.log(`📧 Nuevo correo recibido: ${body.asunto}`);
 
     await db.collection('raw_email_inputs').add({
       subject: body.asunto,
@@ -160,10 +142,7 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString()
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      message: "Correo archivado correctamente." 
-    });
+    return NextResponse.json({ success: true, message: "Correo archivado correctamente." });
 
   } catch (error: any) {
     console.error("❌ Error recibiendo email:", error);
