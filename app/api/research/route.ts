@@ -1,41 +1,53 @@
 import { NextResponse } from 'next/server';
-// Importamos la librería de Google (forzando tipos si es necesario)
+// Usamos los imports específicos para evitar conflictos de tipos
 import { GoogleGenerativeAI } from '@google/generative-ai'; 
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// --- 1. CONFIGURACIÓN ---
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
-// Inicialización de Firebase con Credenciales de Servicio (CORRECCIÓN CRÍTICA)
-if (!getApps().length) {
-  // En Vercel, necesitamos pasar las credenciales explícitamente
-  const serviceAccount = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    // Reemplazo vital: Vercel a veces escapa los saltos de línea, esto lo arregla
-    privateKey: process.env.FIREBASE_PRIVATE_KEY 
-      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
-      : undefined,
-  };
-
-  // Solo inicializamos si tenemos las claves (para evitar error en build time si faltan)
-  if (serviceAccount.projectId) {
-      initializeApp({
-        credential: cert(serviceAccount)
-      });
+// --- 1. FUNCIÓN HELPER DE CONEXIÓN (PATRÓN SINGLETON) ---
+// Esta función es la CLAVE. Solo conecta cuando se le llama, nunca antes.
+function getDB() {
+  // 1. Si ya estamos conectados, devolvemos la instancia existente
+  if (getApps().length > 0) {
+    return getFirestore(getApp());
   }
+
+  // 2. Si no, preparamos las credenciales
+  // (Esto evita errores si las variables no existen durante el build)
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  // Corrección crítica para saltos de línea en Vercel
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY 
+    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
+    : undefined;
+
+  // 3. Verificamos que tenemos todo lo necesario
+  if (!projectId || !clientEmail || !privateKey) {
+    // En tiempo de build, esto puede faltar, así que lanzamos error controlado
+    // para que no rompa la compilación estática si no se usa.
+    throw new Error("Faltan credenciales de Firebase (PROJECT_ID, CLIENT_EMAIL o PRIVATE_KEY).");
+  }
+
+  // 4. Inicializamos
+  initializeApp({
+    credential: cert({
+      projectId,
+      clientEmail,
+      privateKey,
+    }),
+  });
+
+  return getFirestore();
 }
 
-// Obtenemos la instancia de Firestore (si falló la init arriba, esto lanzará error controlado)
-const db = getFirestore();
+// --- 2. CONFIGURACIÓN IA ---
+// Inicializamos esto fuera, pero es seguro porque no requiere red inmediata
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
-// --- 2. DEFINICIÓN DE PROMPTS Y ROLES ---
-
+// --- 3. DEFINICIÓN DE PROMPTS ---
 const ROLE_CIO = `
-Actúa como el Chief Investment Officer (CIO) y Estratega Macro Global de un banco de inversión Tier-1 (ej. JP Morgan AM, BlackRock).
-Tu tono es institucional, sofisticado y directo. No expliques definiciones básicas.
-Tu objetivo es generar inteligencia accionable para gestores de carteras profesionales.
+Actúa como el Chief Investment Officer (CIO) y Estratega Macro Global de un banco de inversión Tier-1.
+Tu tono es institucional, sofisticado y directo.
 `;
 
 const WEEKLY_TASK = `
@@ -51,23 +63,26 @@ Genera el "Informe Estratégico de Asignación de Activos".
 1. Define la tesis de inversión para el próximo mes.
 2. Crea una MATRIZ DE ASIGNACIÓN TÁCTICA detallada.
    - Debe incluir: Clase de Activo, Región, Visión (Sobreponderar/Neutral/Infraponderar), Convicción (1-5) y Rationale.
-   - Asegúrate de cubrir: RV EEUU, RV Europa, RV Emergentes, Bonos Gobierno, Crédito IG/HY y Commodities.
 Salida esperada: JSON estructurado con la matriz y la tesis central.
 `;
 
-// --- 3. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
+// --- 4. HANDLER GET (CRON JOBS & INVESTIGACIÓN) ---
 
 export async function GET(request: Request) {
   try {
+    // ¡IMPORTANTE! Inicializamos la DB AQUÍ DENTRO, no fuera.
+    const db = getDB();
+
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'weekly'; 
 
-    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()}) con Gemini 2.5 Flash...`);
+    console.log(`🚀 Iniciando Deep Research (${type.toUpperCase()})...`);
 
+    // Usamos Gemini 2.5 Flash
     const model = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash", 
       tools: [
-        // FIX TYPESCRIPT: forzamos el tipo
+        // Bypass de tipos para googleSearch
         { googleSearch: {} } as any 
       ] 
     });
@@ -99,6 +114,7 @@ export async function GET(request: Request) {
     const response = await result.response;
     let text = response.text();
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
     const reportData = JSON.parse(text);
 
     const collectionName = 'analysis_results';
@@ -116,15 +132,17 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error("❌ Error en Deep Research:", error);
-    // Mensaje de error más descriptivo si falla la auth
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// --- 4. HANDLER POST (INGESTA DE EMAILS) ---
+// --- 5. HANDLER POST (INGESTA DE EMAILS) ---
 
 export async function POST(request: Request) {
   try {
+    // Inicializamos la DB AQUÍ DENTRO también
+    const db = getDB();
+
     const body = await request.json();
     
     if (!body || !body.texto) {
