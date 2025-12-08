@@ -22,11 +22,10 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
-// --- HELPER: NORMALIZAR DATOS (Arregla tablas vacías) ---
+// --- HELPER: NORMALIZAR DATOS ---
 const normalizeData = (data: any) => {
     if (!data) return [];
     if (Array.isArray(data)) return data;
-    // Si Firebase devuelve objeto {0:.., 1:..}, lo convierte a array
     return Object.keys(data).map(key => data[key]);
 };
 
@@ -53,7 +52,7 @@ export default function Dashboard() {
   const portfolioList = reportData ? normalizeData(reportData.model_portfolio) : [];
   const driversList = reportData ? normalizeData(reportData.keyDrivers) : [];
   
-  // Lógica para el "Risk/Opportunity" dinámico
+  // Lógica KPIs
   const topRisk = driversList.length > 0 ? driversList[0].title : "Inflación Persistente";
   const topOpportunity = portfolioList.length > 0 
       ? portfolioList.reduce((prev:any, current:any) => (prev.conviction > current.conviction) ? prev : current).asset_class 
@@ -62,7 +61,7 @@ export default function Dashboard() {
   return (
     <div className={`min-h-screen bg-[#F3F4F6] text-[#1F2937] ${roboto.className}`}>
       
-      {/* HEADER AZUL MARINO/DORADO REESTRUCTURADO */}
+      {/* HEADER CORREGIDO */}
       <header className="bg-[#0B2545] text-white py-8 px-6 shadow-2xl border-b-8 border-[#D4AF37]">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="text-center md:text-left">
@@ -70,7 +69,7 @@ export default function Dashboard() {
                     Global Investment Outlook
                 </h1>
                 
-                {/* FECHA Y TIPO EN LA CABECERA (CAMBIO SOLICITADO) */}
+                {/* FECHA Y TÍTULO */}
                 <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4 text-[#D4AF37] font-medium uppercase tracking-widest text-sm md:text-base">
                     <span>
                         {activeTab === 'monthly' ? 'Estrategia de Asignación de Activos' : 'Informe Táctico Semanal'}
@@ -86,13 +85,23 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {/* BOTONES */}
-            <div className="flex gap-3 bg-[#061a33] p-1 rounded-lg border border-gray-700">
-                <button onClick={() => setActiveTab('weekly')} className={`px-5 py-2 rounded font-medium transition-all text-sm ${activeTab === 'weekly' ? 'bg-[#D4AF37] text-[#0B2545] shadow-lg font-bold' : 'text-gray-400 hover:text-white'}`}>
-                  Semanal
-                </button>
-                <button onClick={() => setActiveTab('monthly')} className={`px-5 py-2 rounded font-medium transition-all text-sm ${activeTab === 'monthly' ? 'bg-[#D4AF37] text-[#0B2545] shadow-lg font-bold' : 'text-gray-400 hover:text-white'}`}>
-                  Mensual
+            {/* BOTONES DE NAVEGACIÓN Y PDF */}
+            <div className="flex items-center gap-4">
+                <div className="flex gap-2 bg-[#061a33] p-1 rounded-lg border border-gray-700">
+                    <button onClick={() => setActiveTab('weekly')} className={`px-4 py-2 rounded font-medium transition-all text-sm ${activeTab === 'weekly' ? 'bg-[#D4AF37] text-[#0B2545] shadow-lg font-bold' : 'text-gray-400 hover:text-white'}`}>
+                    Semanal
+                    </button>
+                    <button onClick={() => setActiveTab('monthly')} className={`px-4 py-2 rounded font-medium transition-all text-sm ${activeTab === 'monthly' ? 'bg-[#D4AF37] text-[#0B2545] shadow-lg font-bold' : 'text-gray-400 hover:text-white'}`}>
+                    Mensual
+                    </button>
+                </div>
+                
+                {/* BOTÓN PDF BIEN VISIBLE */}
+                <button 
+                    onClick={() => window.open(`/api/export-pdf?type=${activeTab}`, '_blank')}
+                    className="bg-red-700 hover:bg-red-600 text-white px-5 py-2.5 rounded font-bold shadow-lg flex items-center gap-2 transition-colors border border-red-500"
+                >
+                    <span className="text-lg">📄</span> Descargar PDF
                 </button>
             </div>
         </div>
@@ -129,25 +138,25 @@ export default function Dashboard() {
                 </div>
             </section>
 
-            {/* 2. LOS 3 CONTENEDORES (KPIs) - DISEÑO PANTALLAZO */}
+            {/* 2. LOS 3 CONTENEDORES (KPIs) */}
             <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 
-                {/* TARJETA 1: POSTURA GLOBAL (Siempre igual) */}
+                {/* TARJETA 1 */}
                 <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-[#1E40AF] text-center hover:-translate-y-1 transition-transform">
                     <h3 className="text-gray-400 uppercase text-xs font-bold tracking-widest mb-3">POSTURA GLOBAL</h3>
                     <p className="text-xl font-bold text-[#0B2545] leading-tight">{reportData.marketSentiment}</p>
                     <p className="text-xs text-gray-500 mt-2">Sentimiento ponderado IA</p>
                 </div>
 
-                {/* TARJETA 2: VARIABLE SEGÚN SEMANAL/MENSUAL */}
+                {/* TARJETA 2 (Variable) */}
                 <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-[#D4AF37] text-center hover:-translate-y-1 transition-transform">
                     <h3 className="text-gray-400 uppercase text-xs font-bold tracking-widest mb-3">
                         {activeTab === 'monthly' ? 'RIESGO PRINCIPAL' : 'FOCO DE LA SEMANA'}
                     </h3>
                     <p className="text-xl font-bold text-[#0B2545] leading-tight">
                         {activeTab === 'monthly' 
-                            ? topRisk // Mensual: Muestra el Driver #1
-                            : (reportData.thesis?.title || "Volatilidad Táctica") // Semanal: Muestra Título Tesis
+                            ? topRisk 
+                            : (reportData.thesis?.title || "Volatilidad Táctica")
                         }
                     </p>
                     <p className="text-xs text-gray-500 mt-2">
@@ -155,7 +164,7 @@ export default function Dashboard() {
                     </p>
                 </div>
 
-                {/* TARJETA 3: OPORTUNIDAD TÁCTICA */}
+                {/* TARJETA 3 */}
                 <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-[#10B981] text-center hover:-translate-y-1 transition-transform">
                     <h3 className="text-gray-400 uppercase text-xs font-bold tracking-widest mb-3">OPORTUNIDAD TÁCTICA</h3>
                     <p className="text-xl font-bold text-[#0B2545] leading-tight">
@@ -168,11 +177,13 @@ export default function Dashboard() {
 
             {/* 3. GRÁFICOS VISUALES (MACRO) */}
             <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Gráfico Inflación */}
+                
+                {/* GRÁFICO 1: Dinámica Monetaria (CON FECHAS) */}
                 <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
                     <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Dinámica Monetaria</h3>
                     <p className="text-xs text-gray-400 mb-6 uppercase tracking-wide">Proyección Tasas (Azul) vs IPC (Dorado)</p>
-                    <div className="relative h-56 w-full flex items-end justify-between px-2 pb-6 border-b border-gray-200">
+                    
+                    <div className="relative h-56 w-full flex items-end justify-between px-2 pb-2 border-b border-gray-200">
                          {/* Barras */}
                          {['5.3%', '5.0%', '4.7%', '4.5%', '4.2%'].map((val, i) => (
                              <div key={i} className="w-1/6 bg-[#0B2545] rounded-t-sm relative group" style={{height: `${85 - (i*8)}%`}}>
@@ -182,13 +193,22 @@ export default function Dashboard() {
                          {/* Línea Inflación */}
                          <div className="absolute top-[40%] left-0 w-full h-1 bg-[#D4AF37] opacity-50 border-t-2 border-dashed border-[#D4AF37]"></div>
                     </div>
+                    {/* FECHAS AÑADIDAS AQUÍ */}
+                    <div className="flex justify-between px-2 mt-2 text-[10px] md:text-xs font-bold text-gray-500 uppercase">
+                        <span className="w-1/6 text-center">Q4 '24</span>
+                        <span className="w-1/6 text-center">Q1 '25</span>
+                        <span className="w-1/6 text-center">Q2 '25</span>
+                        <span className="w-1/6 text-center">Q3 '25</span>
+                        <span className="w-1/6 text-center">Q4 '25</span>
+                    </div>
                 </div>
 
-                {/* Gráfico PIB */}
+                {/* GRÁFICO 2: PIB (CORREGIDO - BARRAS VISIBLES) */}
                 <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
                     <h3 className={`${playfair.className} text-xl font-bold text-[#0B2545] mb-2`}>Divergencia Crecimiento 2025</h3>
                     <p className="text-xs text-gray-400 mb-6 uppercase tracking-wide">Estimación PIB Real (%)</p>
-                    <div className="h-56 flex items-end justify-between gap-2 pb-6 border-b border-gray-200">
+                    
+                    <div className="h-56 flex items-end justify-between gap-2 pb-2 border-b border-gray-200">
                         {[
                             {l:'USA', v:'2.1%', h:'32%', c:'#1E40AF'},
                             {l:'EUR', v:'0.8%', h:'12%', c:'#9CA3AF'},
@@ -196,17 +216,23 @@ export default function Dashboard() {
                             {l:'JPN', v:'1.0%', h:'16%', c:'#D4AF37'},
                             {l:'EM',  v:'3.8%', h:'52%', c:'#10B981'}
                         ].map((d, i) => (
-                            <div key={i} className="w-full flex flex-col items-center gap-1 group">
-                                <span className={`text-xs font-bold`} style={{color: d.c}}>{d.v}</span>
-                                <div className="w-full rounded-t hover:opacity-80 transition-opacity" style={{backgroundColor: d.c, height: d.h}}></div>
-                                <span className="text-[10px] font-bold text-gray-400">{d.l}</span>
+                            <div key={i} className="w-full h-full flex flex-col justify-end items-center gap-1 group">
+                                <span className="text-xs font-bold" style={{color: d.c}}>{d.v}</span>
+                                <div className="w-full rounded-t hover:opacity-80 transition-opacity shadow-sm" style={{backgroundColor: d.c, height: d.h}}></div>
                             </div>
                         ))}
+                    </div>
+                    <div className="flex justify-between gap-2 mt-2">
+                         <span className="w-full text-center text-[10px] md:text-xs font-bold text-gray-400">USA</span>
+                         <span className="w-full text-center text-[10px] md:text-xs font-bold text-gray-400">EURO</span>
+                         <span className="w-full text-center text-[10px] md:text-xs font-bold text-gray-400">CHINA</span>
+                         <span className="w-full text-center text-[10px] md:text-xs font-bold text-gray-400">JAPÓN</span>
+                         <span className="w-full text-center text-[10px] md:text-xs font-bold text-gray-400">EMERG.</span>
                     </div>
                 </div>
             </section>
 
-            {/* 4. MATRIZ DE CARTERA (TABLA) */}
+            {/* 4. MATRIZ DE CARTERA */}
             {activeTab === 'monthly' && portfolioList.length > 0 && (
                 <section>
                     <h2 className={`${playfair.className} text-2xl font-bold text-[#0B2545] mb-6 border-l-4 border-[#D4AF37] pl-4`}>
